@@ -1,6 +1,6 @@
 using Autofac;
-using Cogs.Exceptions;
 using System;
+using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
 using TheCurator.Logic;
@@ -11,27 +11,20 @@ namespace TheCurator.ConsoleApp
     {
         static async Task Main(string[] args)
         {
-            var container = new ContainerBuilder()
-                .UseSQLite()
-                .UseBot()
-                .Build();
-            var bot = container.Resolve<IBot>();
-            if (args.Length < 1 || args[0] is not { } discordToken || string.IsNullOrWhiteSpace(discordToken))
+            if (Environment.UserInteractive)
             {
-                Console.Error.WriteLine("FATAL: The Discord Token could not be found.");
-                return;
-            }
-            try
-            {
+                var container = new ContainerBuilder()
+                    .UseSQLite()
+                    .UseBot()
+                    .Build();
+                var bot = container.Resolve<IBot>();
+                if (args.Length < 1 || args[0] is not { } discordToken || string.IsNullOrWhiteSpace(discordToken))
+                    throw new Exception("The Discord Token could not be found.");
                 await bot.InitializeAsync(discordToken);
+                await Task.Delay(Timeout.InfiniteTimeSpan);
             }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"FATAL: An unexpected exception was encountered during initialization.{Environment.NewLine}{Environment.NewLine}{ex.GetFullDetails()}");
-                return;
-            }
-            Console.WriteLine("Start successful.");
-            await Task.Delay(Timeout.InfiniteTimeSpan);
+            else
+                ServiceBase.Run(new Service());
         }
     }
 }
