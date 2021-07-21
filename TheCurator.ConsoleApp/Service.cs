@@ -33,6 +33,6 @@ namespace TheCurator.ConsoleApp
             bot.InitializeAsync(discordToken).Wait();
         }
 
-        protected override void OnStop() => container.Dispose();
+        protected override void OnStop() => container.DisposeAsync().AsTask().Wait();
     }
 }
