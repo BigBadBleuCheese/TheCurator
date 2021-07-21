@@ -250,6 +250,7 @@ namespace TheCurator.Logic
             string text;
             var argument = new StringBuilder();
             var isQuoted = false;
+            char? lastChar = null;
             for (var i = 0; i < command.Length; ++i)
             {
                 var character = command[i];
@@ -267,12 +268,18 @@ namespace TheCurator.Logic
                     {
                         yield return argument.ToString();
                         argument.Clear();
+                        lastChar = null;
                     }
                 }
                 else if (character == '\"')
+                {
                     isQuoted = true;
+                    if (lastChar == '\"')
+                        argument.Append('\"');
+                }
                 else
                     argument.Append(character);
+                lastChar = character;
             }
             text = argument.ToString();
             if (!string.IsNullOrWhiteSpace(text))
