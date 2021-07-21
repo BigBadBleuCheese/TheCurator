@@ -6,6 +6,7 @@ using Nito.AsyncEx;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using TheCurator.Logic.Data;
@@ -130,70 +131,74 @@ namespace TheCurator.Logic
 
         async Task MessageReceivedAsync(SocketMessage message)
         {
-            var author = message.Author;
-            var content = message.Content;
-            var channel = message.Channel;
             var atPrefix = $"<@!{client.CurrentUser.Id}>";
-            if (content.StartsWith(atPrefix))
+            if (message.Content.StartsWith(atPrefix))
             {
-                var commandArgs = GetCommandArguments(content.Substring(atPrefix.Length)).ToImmutableArray();
+                var commandArgs = GetCommandArguments(message.Content.Substring(atPrefix.Length)).ToImmutableArray();
                 if (commandArgs.Length >= 1)
                 {
                     var firstArgument = commandArgs[0];
-                    if (firstArgument.ToUpperInvariant() == "ENABLE" && commandArgs.Length >= 2 && commandArgs[1] is { } enableFeature)
+                    if (firstArgument.ToUpperInvariant() == "CHOOSE" && commandArgs.Length >= 2)
                     {
-                        if (enableFeature.ToUpperInvariant() == "COUNTING")
-                        {
-                            if (IsUserAllowedToCommand(author))
-                            {
-                                if ((await dataStore.GetCountingChannelCountAsync(channel.Id).ConfigureAwait(false)).count is null)
-                                {
-                                    await dataStore.SetCountingChannelCountAsync(channel.Id, 0, 0).ConfigureAwait(false);
-                                    await channel.SendMessageAsync("This channel is equipped for counting.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                                }
-                                else
-                                    await channel.SendMessageAsync("Your request cannot be processed. This channel is already equipped for counting.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                            }
-                            else
-                                await RejectCommandAsync(message);
-                        }
+                        var choices = commandArgs.Skip(1).ToImmutableArray();
+                        await message.Channel.SendMessageAsync(choices[new Random().Next(choices.Length)], messageReference: new MessageReference(message.Id));
                     }
                     else if (firstArgument.ToUpperInvariant() == "DISABLE" && commandArgs.Length >= 2 && commandArgs[1] is { } disableFeature)
                     {
                         if (disableFeature.ToUpperInvariant() == "COUNTING")
                         {
-                            if (IsUserAllowedToCommand(author))
+                            if (IsUserAllowedToCommand(message.Author))
                             {
-                                if ((await dataStore.GetCountingChannelCountAsync(channel.Id).ConfigureAwait(false)).count is not null)
+                                if ((await dataStore.GetCountingChannelCountAsync(message.Channel.Id).ConfigureAwait(false)).count is not null)
                                 {
-                                    await dataStore.SetCountingChannelCountAsync(channel.Id, null, null).ConfigureAwait(false);
-                                    await channel.SendMessageAsync("Counting in this channel is no longer operational.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                    await dataStore.SetCountingChannelCountAsync(message.Channel.Id, null, null).ConfigureAwait(false);
+                                    await message.Channel.SendMessageAsync("Counting in this channel is no longer operational.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                                 }
                                 else
-                                    await channel.SendMessageAsync("Your request cannot be processed. Counting in this channel is not operational.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                    await message.Channel.SendMessageAsync("Your request cannot be processed. Counting in this channel is not operational.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                             }
                             else
                                 await RejectCommandAsync(message);
                         }
                     }
+                    else if (firstArgument.ToUpperInvariant() == "ENABLE" && commandArgs.Length >= 2 && commandArgs[1] is { } enableFeature)
+                    {
+                        if (enableFeature.ToUpperInvariant() == "COUNTING")
+                        {
+                            if (IsUserAllowedToCommand(message.Author))
+                            {
+                                if ((await dataStore.GetCountingChannelCountAsync(message.Channel.Id).ConfigureAwait(false)).count is null)
+                                {
+                                    await dataStore.SetCountingChannelCountAsync(message.Channel.Id, 0, 0).ConfigureAwait(false);
+                                    await message.Channel.SendMessageAsync("This channel is equipped for counting.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                }
+                                else
+                                    await message.Channel.SendMessageAsync("Your request cannot be processed. This channel is already equipped for counting.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                            }
+                            else
+                                await RejectCommandAsync(message);
+                        }
+                    }
+                    else
+                        await RejectCommandAsync(message);
                 }
             }
-            if (double.TryParse(content, out var number) &&
+            if (double.TryParse(message.Content, out var number) &&
                 number == Math.Truncate(number))
             {
-                var (nullableCurrentCount, nullableLastAuthorId) = await dataStore.GetCountingChannelCountAsync(channel.Id).ConfigureAwait(false);
+                var (nullableCurrentCount, nullableLastAuthorId) = await dataStore.GetCountingChannelCountAsync(message.Channel.Id).ConfigureAwait(false);
                 if (nullableCurrentCount is { } currentCount && nullableLastAuthorId is { } lastAuthorId)
                 {
                     var uintNumber = (uint)number;
-                    if (lastAuthorId != author.Id && uintNumber - 1 == currentCount)
+                    if (lastAuthorId != message.Author.Id && uintNumber - 1 == currentCount)
                     {
-                        await dataStore.SetCountingChannelCountAsync(channel.Id, uintNumber, author.Id);
+                        await dataStore.SetCountingChannelCountAsync(message.Channel.Id, uintNumber, message.Author.Id);
                         await message.AddReactionAsync(new Emoji("✅"));
                     }
                     else
                     {
-                        await dataStore.SetCountingChannelCountAsync(channel.Id, 0, 0);
-                        await channel.SendMessageAsync($"The counting rules will be strictly enforced. The count was ruined at **{currentCount}**. The next number is **1**.", messageReference: new MessageReference(message.Id));
+                        await dataStore.SetCountingChannelCountAsync(message.Channel.Id, 0, 0);
+                        await message.Channel.SendMessageAsync($"The counting rules will be strictly enforced. The count was ruined at **{currentCount}**. The next number is **1**.", messageReference: new MessageReference(message.Id));
                     }
                 }
             }
