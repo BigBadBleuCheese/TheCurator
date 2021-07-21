@@ -185,6 +185,8 @@ namespace TheCurator.Logic
                         else
                             await RejectCommandAsync(message);
                     }
+                    else
+                        await RejectCommandAsync(message);
                 }
                 if (double.TryParse(message.Content, out var number) &&
                     number == Math.Truncate(number))
