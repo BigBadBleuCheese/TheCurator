@@ -34,3 +34,4 @@ packages/
 .axocover/
 *.ncrunchsolution
 gource.x264.mp4
+TheCurator.ConsoleApp/Properties/launchSettings.json
