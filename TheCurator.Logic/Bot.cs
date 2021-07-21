@@ -182,10 +182,10 @@ namespace TheCurator.Logic
                 number == Math.Truncate(number))
             {
                 var (nullableCurrentCount, nullableLastAuthorId) = await dataStore.GetCountingChannelCountAsync(channel.Id).ConfigureAwait(false);
-                if (nullableCurrentCount is { } currentCount && nullableLastAuthorId is { } lastAuthorId && lastAuthorId != author.Id)
+                if (nullableCurrentCount is { } currentCount && nullableLastAuthorId is { } lastAuthorId)
                 {
                     var uintNumber = (uint)number;
-                    if (uintNumber - 1 == currentCount)
+                    if (lastAuthorId != author.Id && uintNumber - 1 == currentCount)
                     {
                         await dataStore.SetCountingChannelCountAsync(channel.Id, uintNumber, author.Id);
                         await message.AddReactionAsync(new Emoji("✅"));
