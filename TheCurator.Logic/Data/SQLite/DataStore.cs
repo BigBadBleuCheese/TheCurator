@@ -54,7 +54,8 @@ namespace TheCurator.Logic.Data.SQLite
 
         public async Task<(int? count, ulong? lastAuthorId)> GetCountingChannelCountAsync(ulong channelId)
         {
-            var countingChannel = await connection.GetAsync<CountingChannel>(await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false)).ConfigureAwait(false);
+            var id = await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false);
+            var countingChannel = await connection.Table<CountingChannel>().FirstOrDefaultAsync(cc => cc.ChannelId == id).ConfigureAwait(false);
             return countingChannel is null ? (null, null) : (countingChannel.Count, await GetDiscordIdFromIdAsync(countingChannel.LastAuthorId).ConfigureAwait(false));
         }
 
