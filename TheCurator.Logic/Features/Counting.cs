@@ -30,10 +30,10 @@ namespace TheCurator.Logic.Features
                 var (nullableCurrentCount, nullableLastAuthorId) = await dataStore.GetCountingChannelCountAsync(message.Channel.Id).ConfigureAwait(false);
                 if (nullableCurrentCount is { } currentCount && nullableLastAuthorId is { } lastAuthorId)
                 {
-                    var uintNumber = (uint)number;
-                    if (lastAuthorId != message.Author.Id && uintNumber - 1 == currentCount)
+                    var intNumber = (int)number;
+                    if (lastAuthorId != message.Author.Id && intNumber - 1 == currentCount)
                     {
-                        await dataStore.SetCountingChannelCountAsync(message.Channel.Id, uintNumber, message.Author.Id);
+                        await dataStore.SetCountingChannelCountAsync(message.Channel.Id, intNumber, message.Author.Id);
                         await message.AddReactionAsync(new Emoji("✅"));
                     }
                     else
