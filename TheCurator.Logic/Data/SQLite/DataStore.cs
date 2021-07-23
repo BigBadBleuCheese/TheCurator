@@ -32,6 +32,7 @@ namespace TheCurator.Logic.Data.SQLite
             if (schemaVersion == 0)
             {
                 await connection.CreateTableAsync<CountingChannel>().ConfigureAwait(false);
+                await connection.CreateTableAsync<Snowflake>().ConfigureAwait(false);
                 await connection.CreateTableAsync<SuicideKingsList>().ConfigureAwait(false);
                 await connection.CreateTableAsync<SuicideKingsListEntry>().ConfigureAwait(false);
                 await connection.CreateTableAsync<SuicideKingsMember>().ConfigureAwait(false);
