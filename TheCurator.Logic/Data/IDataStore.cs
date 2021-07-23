@@ -9,8 +9,8 @@ namespace TheCurator.Logic.Data
 
         Task DisconnectAsync();
 
-        Task<(uint? count, ulong? lastAuthorId)> GetCountingChannelCountAsync(ulong channelId);
+        Task<(int? count, ulong? lastAuthorId)> GetCountingChannelCountAsync(ulong channelId);
 
-        Task SetCountingChannelCountAsync(ulong channelId, uint? count, ulong? lastAuthorId);
+        Task SetCountingChannelCountAsync(ulong channelId, int? count, ulong? lastAuthorId);
     }
 }
