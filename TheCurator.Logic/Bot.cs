@@ -188,7 +188,8 @@ namespace TheCurator.Logic
                     else
                         await RejectCommandAsync(message);
                 }
-                if (double.TryParse(message.Content, out var number) &&
+                if (message.Author.Id != client.CurrentUser.Id &&
+                    double.TryParse(message.Content, out var number) &&
                     number == Math.Truncate(number))
                 {
                     var (nullableCurrentCount, nullableLastAuthorId) = await dataStore.GetCountingChannelCountAsync(message.Channel.Id).ConfigureAwait(false);
