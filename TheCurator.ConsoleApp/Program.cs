@@ -15,6 +15,7 @@ namespace TheCurator.ConsoleApp
             {
                 var container = new ContainerBuilder()
                     .UseSQLite()
+                    .UseReflectedFeatureCatalog()
                     .UseBot()
                     .Build();
                 var bot = container.Resolve<IBot>();

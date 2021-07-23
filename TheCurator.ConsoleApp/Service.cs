@@ -13,6 +13,7 @@ namespace TheCurator.ConsoleApp
             EventLog.Source = "The Curator";
             container = new ContainerBuilder()
                 .UseSQLite()
+                .UseReflectedFeatureCatalog()
                 .UseBot()
                 .Build();
         }
