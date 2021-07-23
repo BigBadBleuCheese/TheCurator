@@ -40,7 +40,7 @@ namespace TheCurator.Logic.Data.SQLite
                 schemaVersion = 1;
             }
             if (schemaVersion != readSchemaVersion)
-                await connection.ExecuteScalarAsync<int>("PRAGMA user_version = ?;", schemaVersion).ConfigureAwait(false);
+                await connection.ExecuteScalarAsync<int>($"PRAGMA user_version = {schemaVersion};").ConfigureAwait(false);
         }
 
         public Task DisconnectAsync() => connection.CloseAsync();
