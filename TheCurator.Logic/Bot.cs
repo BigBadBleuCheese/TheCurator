@@ -26,8 +26,8 @@ namespace TheCurator.Logic
                 foreach (var type in featureCatalog.Services)
                     builder.RegisterType(type);
             });
-            features = featureCatalog.Services.Select(type => this.lifetimeScope.Resolve(type)).OfType<IFeature>().ToImmutableArray();
             Client = new DiscordSocketClient();
+            features = featureCatalog.Services.Select(type => this.lifetimeScope.Resolve(type)).OfType<IFeature>().ToImmutableArray();
         }
         readonly IDataStore dataStore;
         readonly IEnumerable<IFeature> features;
