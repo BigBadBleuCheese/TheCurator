@@ -82,16 +82,23 @@ namespace TheCurator.Logic
                 {
                     var requestArgs = GetRequestArguments(message.Content.Substring(atPrefix.Length)).ToImmutableArray();
                     var requestProcessed = false;
-                    foreach (var feature in features)
+                    try
                     {
-                        if (await feature.ProcessRequestAsync(message, requestArgs))
+                        foreach (var feature in features)
                         {
-                            requestProcessed = true;
-                            break;
+                            if (await feature.ProcessRequestAsync(message, requestArgs))
+                            {
+                                requestProcessed = true;
+                                break;
+                            }
                         }
+                        if (!requestProcessed)
+                            await message.Channel.SendMessageAsync("Your request cannot be processed.", messageReference: new MessageReference(message.Id));
                     }
-                    if (!requestProcessed)
-                        await message.Channel.SendMessageAsync("Your request cannot be processed.", messageReference: new MessageReference(message.Id));
+                    catch (Exception ex)
+                    {
+                        await message.Channel.SendMessageAsync($"Your request cannot be processed. `{ex.Message}`", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                    }
                 }
             }
         }
