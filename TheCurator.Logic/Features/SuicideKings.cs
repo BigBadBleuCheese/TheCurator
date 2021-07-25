@@ -93,10 +93,10 @@ namespace TheCurator.Logic.Features
 
         public async Task<bool> ProcessRequestAsync(SocketMessage message, IReadOnlyList<string> commandArgs)
         {
-            if (commandArgs.Count >= 1 && requestIdentifiers.Contains(commandArgs[0], StringComparer.OrdinalIgnoreCase) && message.Author is IGuildUser guildAuthor && guildAuthor.Guild is SocketGuild guild)
+            if (commandArgs.Count >= 1 && requestIdentifiers.Contains(commandArgs[0], StringComparer.OrdinalIgnoreCase) && message.Author is SocketGuildUser guildAuthor && guildAuthor.Guild is SocketGuild guild)
             {
                 var isAdmin = bot.IsAdministrativeUser(message.Author);
-                var isModerator = (await dataStore.GetSuicideKingsRolesAsync(guildAuthor.Guild.Id).ConfigureAwait(false)).Any(roleId => guild.Roles.Any(role => role.Id == roleId));
+                var isModerator = (await dataStore.GetSuicideKingsRolesAsync(guildAuthor.Guild.Id).ConfigureAwait(false)).Any(roleId => guildAuthor.Roles.Any(role => role.Id == roleId));
                 var secondArg = commandArgs[1];
                 if (secondArg.Equals("PRINT", StringComparison.OrdinalIgnoreCase))
                 {
