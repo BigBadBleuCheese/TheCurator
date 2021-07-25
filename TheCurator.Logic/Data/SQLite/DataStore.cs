@@ -162,7 +162,7 @@ namespace TheCurator.Logic.Data.SQLite
         {
             var cId = await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false);
             var upperName = name.ToUpperInvariant();
-            return (await connection.Table<SuicideKingsList>().Where(l => l.Name != null && l.Name.ToUpper() == upperName).FirstOrDefaultAsync().ConfigureAwait(false))?.ListId;
+            return (await connection.Table<SuicideKingsList>().Where(l => l.ChannelId == cId && l.Name != null && l.Name.ToUpper() == upperName).FirstOrDefaultAsync().ConfigureAwait(false))?.ListId;
         }
 
         public async Task<IReadOnlyList<(int listId, string name)>> GetSuicideKingsListsAsync(ulong channelId)
@@ -178,7 +178,7 @@ namespace TheCurator.Logic.Data.SQLite
         {
             var cId = await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false);
             var upperName = name.ToUpperInvariant();
-            return (await connection.Table<SuicideKingsMember>().Where(m => m.Name != null && m.Name.ToUpper() == upperName).FirstOrDefaultAsync().ConfigureAwait(false))?.MemberId;
+            return (await connection.Table<SuicideKingsMember>().Where(m => m.ChannelId == cId && m.Name != null && m.Name.ToUpper() == upperName).FirstOrDefaultAsync().ConfigureAwait(false))?.MemberId;
         }
 
         public async Task<IReadOnlyList<(int memberId, string name)>> GetSuicideKingsMembersAsync(ulong channelId)
