@@ -3,6 +3,7 @@ using Discord;
 using Discord.WebSocket;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using TheCurator.Logic.Data;
 
@@ -12,6 +13,7 @@ namespace TheCurator.Logic.Features
     {
         public Counting(IDataStore dataStore, IBot bot)
         {
+            RequestIdentifiers = new string[] { "counting" };
             this.dataStore = dataStore;
             this.bot = bot;
             this.bot.Client.MessageReceived += ClientMessageReceived;
@@ -19,6 +21,18 @@ namespace TheCurator.Logic.Features
 
         readonly IBot bot;
         readonly IDataStore dataStore;
+
+        public string Description => "Manages a counting game in a channel";
+
+        public IReadOnlyList<(string command, string description)> Examples => new (string command, string description)[]
+        {
+            ("enable", "Enables the counting game in the current channel"),
+            ("disable", "Disables the counting game in the current channel"),
+        };
+
+        public string Name => "Counting";
+
+        public IReadOnlyList<string> RequestIdentifiers { get; }
 
         async Task ClientMessageReceived(SocketMessage message)
         {
@@ -54,7 +68,7 @@ namespace TheCurator.Logic.Features
 
         public async Task<bool> ProcessRequestAsync(SocketMessage message, IReadOnlyList<string> commandArgs)
         {
-            if (bot.IsAdministrativeUser(message.Author) && commandArgs.Count == 2 && commandArgs[0].ToUpperInvariant() == "COUNTING")
+            if (bot.IsAdministrativeUser(message.Author) && commandArgs.Count == 2 && RequestIdentifiers.Contains(commandArgs[0], StringComparer.OrdinalIgnoreCase))
             {
                 var secondArgument = commandArgs[1].ToUpperInvariant();
                 if (secondArgument == "ENABLE")

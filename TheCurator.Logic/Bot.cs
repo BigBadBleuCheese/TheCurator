@@ -93,7 +93,47 @@ namespace TheCurator.Logic
                             }
                         }
                         if (!requestProcessed)
-                            await message.Channel.SendMessageAsync("Your request cannot be processed.", messageReference: new MessageReference(message.Id));
+                        {
+                            if (requestArgs.Length >= 1 && requestArgs[0].Equals("help", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (requestArgs.Length == 1)
+                                {
+                                    await message.Channel.SendMessageAsync(embed: new EmbedBuilder
+                                    {
+                                        Title = $"Features",
+                                        Fields = features.OrderBy(feature => feature.Name).Select(feature => new EmbedFieldBuilder
+                                        {
+                                            Name = feature.Name,
+                                            Value = $"{feature.Description}\nIdentifiers: {string.Join(", ", feature.RequestIdentifiers.Select(i => $"`{i}`"))}\nFor example requests: {string.Join(" -OR- ", feature.RequestIdentifiers.Select(i => $"`help {i}`"))}",
+                                            IsInline = false
+                                        }).ToList()
+                                    }.Build(), messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                }
+                                else if (requestArgs.Length == 2)
+                                {
+                                    var secondArg = requestArgs[1];
+                                    if (features.FirstOrDefault(f => f.RequestIdentifiers.Contains(secondArg, StringComparer.OrdinalIgnoreCase)) is { } feature)
+                                    {
+                                        await message.Channel.SendMessageAsync(embed: new EmbedBuilder
+                                        {
+                                            Title = $"{feature.Name} requests",
+                                            Fields = feature.Examples.Select(example => new EmbedFieldBuilder
+                                            {
+                                                Name = example.command,
+                                                Value = example.description,
+                                                IsInline = false
+                                            }).ToList()
+                                        }.Build(), messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                    }
+                                    else
+                                        await message.Channel.SendMessageAsync($"Your request cannot be processed. No such feature `{secondArg}`.", messageReference: new MessageReference(message.Id));
+                                }
+                                else
+                                    await message.Channel.SendMessageAsync("Your request cannot be processed.", messageReference: new MessageReference(message.Id));
+                            }
+                            else
+                                await message.Channel.SendMessageAsync("Your request cannot be processed.", messageReference: new MessageReference(message.Id));
+                        }
                     }
                     catch (Exception ex)
                     {

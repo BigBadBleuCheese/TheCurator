@@ -147,7 +147,7 @@ namespace TheCurator.Logic.Data.SQLite
                 ChannelId = await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false),
                 Name = name
             };
-            await connection.InsertAsync(member).ConfigureAwait(false);
+            await connection.InsertOrReplaceAsync(member).ConfigureAwait(false);
             return member.MemberId;
         }
 
@@ -172,13 +172,13 @@ namespace TheCurator.Logic.Data.SQLite
         }
 
         public async Task<IReadOnlyList<(int memberId, string name)>> GetSuicideKingsListMembersInPositionOrderAsync(int listId) =>
-            (await connection.QueryAsync<SuicideKingsMember>("select m.ChannelId, m.MemberId, m.Name from SuicideKingsListEntry le join SuicideKingsMember m on m.MemberId = le.MemberId where le.ListId = ? and m.Retired is null order by le.Position", listId).ConfigureAwait(false)).Select(m => (m.MemberId, m.Name)).ToImmutableArray();
+            (await connection.QueryAsync<SuicideKingsMember>("select m.ChannelId, m.MemberId, m.Name from SuicideKingsListEntry le join SuicideKingsMember m on m.MemberId = le.MemberId where le.ListId = ? and le.Position >= 0 order by le.Position", listId).ConfigureAwait(false)).Select(m => (m.MemberId, m.Name)).ToImmutableArray();
 
         public async Task<int?> GetSuicideKingsMemberIdByNameAsync(ulong channelId, string name)
         {
             var cId = await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false);
             var upperName = name.ToUpperInvariant();
-            return (await connection.Table<SuicideKingsMember>().Where(m => m.ChannelId == cId && m.Name != null && m.Name.ToUpper() == upperName).FirstOrDefaultAsync().ConfigureAwait(false))?.MemberId;
+            return (await connection.Table<SuicideKingsMember>().Where(m => m.ChannelId == cId && m.Name != null && m.Name.ToUpper() == upperName && m.Retired == null).FirstOrDefaultAsync().ConfigureAwait(false))?.MemberId;
         }
 
         public async Task<IReadOnlyList<(int memberId, string name)>> GetSuicideKingsMembersAsync(ulong channelId)
@@ -214,7 +214,11 @@ namespace TheCurator.Logic.Data.SQLite
         {
             var member = await connection.GetAsync<SuicideKingsMember>(memberId).ConfigureAwait(false);
             member.Retired = System.DateTimeOffset.UtcNow;
+            var entries = await connection.Table<SuicideKingsListEntry>().Where(e => e.MemberId == memberId).ToListAsync().ConfigureAwait(false);
+            foreach (var entry in entries)
+                entry.Position = -1;
             await connection.UpdateAsync(member).ConfigureAwait(false);
+            await connection.UpdateAllAsync(entries).ConfigureAwait(false);
         }
 
         public async Task SetSuicideKingsListMemberEntryAsync(int listId, int memberId, int position)
