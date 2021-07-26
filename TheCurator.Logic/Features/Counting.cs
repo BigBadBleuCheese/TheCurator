@@ -37,7 +37,7 @@ namespace TheCurator.Logic.Features
         async Task ClientMessageReceived(SocketMessage message)
         {
             if (message.Channel is IGuildChannel &&
-                message.Author.Id != bot.Client.CurrentUser.Id &&
+                !message.Author.IsBot &&
                 double.TryParse(message.Content, out var number) &&
                 number == Math.Truncate(number))
             {
