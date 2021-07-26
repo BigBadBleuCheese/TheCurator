@@ -1,7 +1,6 @@
 using Cogs.Disposal;
 using SQLite;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
@@ -12,22 +11,9 @@ namespace TheCurator.Logic.Data.SQLite
 {
     public class DataStore : AsyncDisposable, IDataStore
     {
-        public DataStore()
-        {
-            connection = new SQLiteAsyncConnection(Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetEntryAssembly().Location), "data.sqlite"));
-            discordIdById = new ConcurrentDictionary<int, ulong>();
-            idByDiscordId = new ConcurrentDictionary<ulong, int>();
-        }
+        public DataStore() => connection = new SQLiteAsyncConnection(Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetEntryAssembly().Location), "data.sqlite"));
 
         readonly SQLiteAsyncConnection connection;
-        readonly ConcurrentDictionary<int, ulong> discordIdById;
-        readonly ConcurrentDictionary<ulong, int> idByDiscordId;
-
-        void CacheIdAndDiscordId(int id, ulong discordId)
-        {
-            discordIdById.AddOrUpdate(id, discordId, (k, v) => discordId);
-            idByDiscordId.AddOrUpdate(discordId, id, (k, v) => id);
-        }
 
         public async Task ConnectAsync()
         {
@@ -36,14 +22,80 @@ namespace TheCurator.Logic.Data.SQLite
             if (schemaVersion == 0)
             {
                 await connection.CreateTableAsync<CountingChannel>().ConfigureAwait(false);
-                await connection.CreateTableAsync<Snowflake>().ConfigureAwait(false);
                 await connection.CreateTableAsync<SuicideKingsList>().ConfigureAwait(false);
                 await connection.CreateTableAsync<SuicideKingsListEntry>().ConfigureAwait(false);
                 await connection.CreateTableAsync<SuicideKingsMember>().ConfigureAwait(false);
                 await connection.CreateTableAsync<SuicideKingsRole>().ConfigureAwait(false);
                 await connection.CreateTableAsync<SuicideKingsDrop>().ConfigureAwait(false);
                 await connection.CreateTableAsync<SuicideKingsDropWitness>().ConfigureAwait(false);
-                schemaVersion = 1;
+                schemaVersion = 2;
+            }
+            if (schemaVersion == 1)
+            {
+                async Task<long> getSnowflakeAsync(long id) => ulong.Parse(await connection.ExecuteScalarAsync<string>("select DiscordId from Snowflake where Id = ?", id)).ToSigned();
+                var updateObjects = new List<object>();
+                await connection.ExecuteAsync("create table NewCountingChannel (ChannelId bigint not null primary key, Count integer, LastAuthorId bigint);");
+                await connection.ExecuteAsync("insert into NewCountingChannel select ChannelId, Count, LastAuthorId from CountingChannel;");
+                await connection.ExecuteAsync("drop table CountingChannel;");
+                await connection.ExecuteAsync("alter table `NewCountingChannel` RENAME TO `CountingChannel`;");
+                foreach (var countingChannel in await connection.Table<CountingChannel>().ToListAsync().ConfigureAwait(false))
+                {
+                    if (countingChannel.LastAuthorId == 0)
+                        await connection.ExecuteAsync
+                        (
+                            "update CountingChannel set ChannelId = ? where ChannelId = ?",
+                            await getSnowflakeAsync(countingChannel.ChannelId).ConfigureAwait(false),
+                            countingChannel.ChannelId
+                        ).ConfigureAwait(false);
+                    else
+                        await connection.ExecuteAsync
+                        (
+                            "update CountingChannel set ChannelId = ?, LastAuthorId = ? where ChannelId = ?",
+                            await getSnowflakeAsync(countingChannel.ChannelId).ConfigureAwait(false),
+                            await getSnowflakeAsync(countingChannel.LastAuthorId).ConfigureAwait(false),
+                            countingChannel.ChannelId
+                        ).ConfigureAwait(false);
+                }
+                await connection.ExecuteAsync("create table NewSuicideKingsList (ListId integer not null primary key autoincrement, ChannelId bigint not null, Name varchar not null);");
+                await connection.ExecuteAsync("drop index UX_SuicideKingsList;");
+                await connection.ExecuteAsync("create unique index UX_SuicideKingsList on NewSuicideKingsList (ChannelId, Name);");
+                await connection.ExecuteAsync("insert into NewSuicideKingsList select ListId, ChannelId, Name from SuicideKingsList;");
+                await connection.ExecuteAsync("drop table SuicideKingsList;");
+                await connection.ExecuteAsync("alter table `NewSuicideKingsList` RENAME TO `SuicideKingsList`;");
+                foreach (var suicideKingsList in await connection.Table<SuicideKingsList>().ToListAsync().ConfigureAwait(false))
+                {
+                    suicideKingsList.ChannelId = await getSnowflakeAsync(suicideKingsList.ChannelId).ConfigureAwait(false);
+                    updateObjects.Add(suicideKingsList);
+                }
+                await connection.ExecuteAsync("create table NewSuicideKingsMember (MemberId integer not null primary key autoincrement, ChannelId bigint not null, Name varchar not null, Retired bigint);");
+                await connection.ExecuteAsync("drop index UX_SuicideKingsMember;");
+                await connection.ExecuteAsync("create unique index UX_SuicideKingsMember on NewSuicideKingsMember (ChannelId, Name);");
+                await connection.ExecuteAsync("insert into NewSuicideKingsMember select MemberId, ChannelId, Name, Retired from SuicideKingsMember;");
+                await connection.ExecuteAsync("drop table SuicideKingsMember;");
+                await connection.ExecuteAsync("alter table `NewSuicideKingsMember` RENAME TO `SuicideKingsMember`;");
+                foreach (var suicideKingsMember in await connection.Table<SuicideKingsMember>().ToListAsync().ConfigureAwait(false))
+                {
+                    suicideKingsMember.ChannelId = await getSnowflakeAsync(suicideKingsMember.ChannelId).ConfigureAwait(false);
+                    updateObjects.Add(suicideKingsMember);
+                }
+                await connection.ExecuteAsync("create table NewSuicideKingsRole (GuildId bigint not null, RoleId bigint not null);");
+                await connection.ExecuteAsync("drop index UX_SuicideKingsRole;");
+                await connection.ExecuteAsync("create unique index UX_SuicideKingsRole on NewSuicideKingsRole (GuildId, RoleId);");
+                await connection.ExecuteAsync("insert into NewSuicideKingsRole select GuildId, RoleId from SuicideKingsRole where GuildId is not null and RoleId is not null;");
+                await connection.ExecuteAsync("drop table SuicideKingsRole;");
+                await connection.ExecuteAsync("alter table `NewSuicideKingsRole` RENAME TO `SuicideKingsRole`;");
+                foreach (var suicideKingsRole in await connection.Table<SuicideKingsRole>().ToListAsync().ConfigureAwait(false))
+                    await connection.ExecuteAsync
+                    (
+                        "update SuicideKingsRole set GuildId = ?, RoleId = ? where GuildId = ? and RoleId = ?",
+                        await getSnowflakeAsync(suicideKingsRole.GuildId).ConfigureAwait(false),
+                        await getSnowflakeAsync(suicideKingsRole.RoleId).ConfigureAwait(false),
+                        suicideKingsRole.GuildId,
+                        suicideKingsRole.RoleId
+                    ).ConfigureAwait(false);
+                await connection.UpdateAllAsync(updateObjects).ConfigureAwait(false);
+                await connection.ExecuteAsync("drop table Snowflake;");
+                schemaVersion = 2;
             }
             if (schemaVersion != readSchemaVersion)
                 await connection.ExecuteScalarAsync<int>($"PRAGMA user_version = {schemaVersion};").ConfigureAwait(false);
@@ -58,40 +110,13 @@ namespace TheCurator.Logic.Data.SQLite
             return true;
         }
 
-        async Task<int> GetIdFromDiscordIdAsync(ulong discordId)
-        {
-            if (!idByDiscordId.TryGetValue(discordId, out var id))
-            {
-                var discordIdStr = discordId.ToString();
-                var snowflake = await connection.Table<Snowflake>().Where(sf => sf.DiscordId == discordIdStr).FirstOrDefaultAsync().ConfigureAwait(false);
-                if (snowflake == null)
-                {
-                    snowflake = new Snowflake { DiscordId = discordIdStr };
-                    await connection.InsertAsync(snowflake).ConfigureAwait(false);
-                }
-                id = snowflake.Id;
-                CacheIdAndDiscordId(id, discordId);
-            }
-            return id;
-        }
-
-        async Task<ulong> GetDiscordIdFromIdAsync(int id)
-        {
-            if (!discordIdById.TryGetValue(id, out var discordId))
-            {
-                discordId = ulong.Parse((await connection.GetAsync<Snowflake>(id).ConfigureAwait(false)).DiscordId);
-                CacheIdAndDiscordId(id, discordId);
-            }
-            return discordId;
-        }
-
         #region Counting
 
         public async Task<(int? count, ulong? lastAuthorId)> GetCountingChannelCountAsync(ulong channelId)
         {
-            var id = await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false);
+            var id = channelId.ToSigned();
             var countingChannel = await connection.Table<CountingChannel>().FirstOrDefaultAsync(cc => cc.ChannelId == id).ConfigureAwait(false);
-            return countingChannel is null ? (null, null) : (countingChannel.Count, await GetDiscordIdFromIdAsync(countingChannel.LastAuthorId).ConfigureAwait(false));
+            return countingChannel is null ? (null, null) : (countingChannel.Count, countingChannel.LastAuthorId.ToUnsigned());
         }
 
         public async Task SetCountingChannelCountAsync(ulong channelId, int? count, ulong? lastAuthorId)
@@ -99,9 +124,9 @@ namespace TheCurator.Logic.Data.SQLite
             if (count is { } nonNullCount && lastAuthorId is { } nonNullLastAuthorId)
                 await connection.InsertOrReplaceAsync(new CountingChannel
                 {
-                    ChannelId = await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false),
+                    ChannelId = channelId.ToSigned(),
                     Count = nonNullCount,
-                    LastAuthorId = await GetIdFromDiscordIdAsync(nonNullLastAuthorId).ConfigureAwait(false),
+                    LastAuthorId = nonNullLastAuthorId.ToSigned(),
                 }).ConfigureAwait(false);
         }
 
@@ -133,7 +158,7 @@ namespace TheCurator.Logic.Data.SQLite
         {
             var list = new SuicideKingsList
             {
-                ChannelId = await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false),
+                ChannelId = channelId.ToSigned(),
                 Name = name
             };
             await connection.InsertAsync(list).ConfigureAwait(false);
@@ -144,7 +169,7 @@ namespace TheCurator.Logic.Data.SQLite
         {
             var member = new SuicideKingsMember
             {
-                ChannelId = await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false),
+                ChannelId = channelId.ToSigned(),
                 Name = name
             };
             await connection.InsertOrReplaceAsync(member).ConfigureAwait(false);
@@ -154,20 +179,20 @@ namespace TheCurator.Logic.Data.SQLite
         public async Task AddSuicideKingsRoleAsync(ulong guildId, ulong roleId) =>
             await connection.InsertAsync(new SuicideKingsRole
             {
-                GuildId = await GetIdFromDiscordIdAsync(guildId).ConfigureAwait(false),
-                RoleId = await GetIdFromDiscordIdAsync(roleId).ConfigureAwait(false)
+                GuildId = guildId.ToSigned(),
+                RoleId = roleId.ToSigned()
             }).ConfigureAwait(false);
 
         public async Task<int?> GetSuicideKingsListIdByNameAsync(ulong channelId, string name)
         {
-            var cId = await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false);
+            var cId = channelId.ToSigned();
             var upperName = name.ToUpperInvariant();
             return (await connection.Table<SuicideKingsList>().Where(l => l.ChannelId == cId && l.Name != null && l.Name.ToUpper() == upperName).FirstOrDefaultAsync().ConfigureAwait(false))?.ListId;
         }
 
         public async Task<IReadOnlyList<(int listId, string name)>> GetSuicideKingsListsAsync(ulong channelId)
         {
-            var id = await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false);
+            var id = channelId.ToSigned();
             return (await connection.Table<SuicideKingsList>().Where(l => l.ChannelId == id).OrderBy(l => l.Name).ToListAsync().ConfigureAwait(false)).Select(l => (l.ListId, l.Name)).ToImmutableArray();
         }
 
@@ -176,23 +201,23 @@ namespace TheCurator.Logic.Data.SQLite
 
         public async Task<int?> GetSuicideKingsMemberIdByNameAsync(ulong channelId, string name)
         {
-            var cId = await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false);
+            var cId = channelId.ToSigned();
             var upperName = name.ToUpperInvariant();
             return (await connection.Table<SuicideKingsMember>().Where(m => m.ChannelId == cId && m.Name != null && m.Name.ToUpper() == upperName && m.Retired == null).FirstOrDefaultAsync().ConfigureAwait(false))?.MemberId;
         }
 
         public async Task<IReadOnlyList<(int memberId, string name)>> GetSuicideKingsMembersAsync(ulong channelId)
         {
-            var id = await GetIdFromDiscordIdAsync(channelId).ConfigureAwait(false);
+            var id = channelId.ToSigned();
             return (await connection.Table<SuicideKingsMember>().Where(m => m.ChannelId == id && m.Retired == null).OrderBy(m => m.Name).ToListAsync().ConfigureAwait(false)).Select(m => (m.MemberId, m.Name)).ToImmutableArray();
         }
 
         public async Task<IReadOnlyList<ulong>> GetSuicideKingsRolesAsync(ulong guildId)
         {
             var roles = new List<ulong>();
-            var gId = await GetIdFromDiscordIdAsync(guildId).ConfigureAwait(false);
+            var gId = guildId.ToSigned();
             foreach (var roleId in (await connection.Table<SuicideKingsRole>().Where(r => r.GuildId == gId).ToListAsync().ConfigureAwait(false)).Select(r => r.RoleId))
-                roles.Add(await GetDiscordIdFromIdAsync(roleId).ConfigureAwait(false));
+                roles.Add(roleId.ToUnsigned());
             return roles;
         }
 
@@ -205,15 +230,15 @@ namespace TheCurator.Logic.Data.SQLite
 
         public async Task RemoveSuicideKingsRoleAsync(ulong guildId, ulong roleId)
         {
-            var gId = await GetIdFromDiscordIdAsync(guildId).ConfigureAwait(false);
-            var rId = await GetIdFromDiscordIdAsync(roleId).ConfigureAwait(false);
+            var gId = guildId.ToSigned();
+            var rId = roleId.ToSigned();
             await connection.Table<SuicideKingsRole>().DeleteAsync(r => r.GuildId == gId && r.RoleId == rId).ConfigureAwait(false);
         }
 
         public async Task RetireSuicideKingsMemberAsync(int memberId)
         {
             var member = await connection.GetAsync<SuicideKingsMember>(memberId).ConfigureAwait(false);
-            member.Retired = System.DateTimeOffset.UtcNow;
+            member.Retired = DateTimeOffset.UtcNow;
             var entries = await connection.Table<SuicideKingsListEntry>().Where(e => e.MemberId == memberId).ToListAsync().ConfigureAwait(false);
             foreach (var entry in entries)
                 entry.Position = -1;
