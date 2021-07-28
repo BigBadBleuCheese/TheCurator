@@ -383,7 +383,10 @@ namespace TheCurator.Logic.Features
                     }
                 }
                 else if (emote.Name == "✅" && reactingUser.Id == authorId)
+                {
+                    await dataStore.ClosePollAsync(activePoll.pollId).ConfigureAwait(false);
                     await ClosePollAsync(pollMessage).ConfigureAwait(false);
+                }
                 else
                     await pollMessage.RemoveReactionAsync(reaction.Emote, reactingUser).ConfigureAwait(false);
             }
@@ -393,7 +396,7 @@ namespace TheCurator.Logic.Features
         {
             if (message.Channel is SocketGuildChannel guildChannel && activePollIdByMessageId.TryGetValue(message.Id, out var activePoll))
             {
-                var (_, _, _, _, _, options, roleIds, allowedVotes, isSecretBallot, _, end) = await dataStore.GetPollAsync(activePoll.pollId).ConfigureAwait(false);
+                var (_, _, _, _, _, options, roleIds, allowedVotes, isSecretBallot, _, _) = await dataStore.GetPollAsync(activePoll.pollId).ConfigureAwait(false);
                 var votesByUserId = new Dictionary<ulong, List<int>>();
                 if (!isSecretBallot)
                 {
@@ -423,6 +426,7 @@ namespace TheCurator.Logic.Features
                     }
                     foreach (var userId in votesByUserId.Keys)
                         votesByUserId[userId] = votesByUserId[userId].Distinct().Take(allowedVotes).ToList();
+                    await dataStore.RemoveAllPollResultsAsync(activePoll.pollId).ConfigureAwait(false);
                     foreach (var kv in votesByUserId)
                     {
                         var userId = kv.Key;

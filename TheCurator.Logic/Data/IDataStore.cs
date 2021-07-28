@@ -38,6 +38,8 @@ namespace TheCurator.Logic.Data
 
         Task<IReadOnlyList<int>> GetPollVotesForUserAsync(int pollId, ulong userId);
 
+        Task RemoveAllPollResultsAsync(int pollId);
+
         Task RemovePollingRoleAsync(ulong channelId, ulong roleId);
 
         Task RetractPollVoteAsync(ulong userId, int optionId);

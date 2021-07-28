@@ -244,6 +244,12 @@ namespace TheCurator.Logic.Data.SQLite
             return votes.Select(vote => vote.OptionId).ToImmutableArray();
         }
 
+        public async Task RemoveAllPollResultsAsync(int pollId)
+        {
+            var optionIds = (await connection.Table<PollOption>().Where(option => option.PollId == pollId).ToListAsync().ConfigureAwait(false)).Select(option => option.OptionId).ToImmutableArray();
+            await connection.ExecuteAsync($"delete from PollVote where OptionId in ({string.Join(", ", optionIds)})").ConfigureAwait(false);
+        }
+
         public async Task RemovePollingRoleAsync(ulong channelId, ulong roleId)
         {
             var cId = channelId.ToSigned();
