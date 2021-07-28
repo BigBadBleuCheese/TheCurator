@@ -18,6 +18,34 @@ namespace TheCurator.Logic.Data
 
         #endregion Counting
 
+        #region Polling
+
+        Task<int> AddPollAsync(ulong authorId, ulong guildId, ulong channelId, string question, IReadOnlyList<(string name, string emoteName)> options, IReadOnlyList<ulong> roleIds, int allowedVotes, bool isSecretBallot, DateTimeOffset start, DateTimeOffset? end);
+
+        Task AddPollingRoleAsync(ulong channelId, ulong roleId);
+
+        Task CastPollVoteAsync(ulong userId, int optionId);
+
+        Task ClosePollAsync(int pollId);
+
+        Task<(ulong authorId, ulong guildId, ulong channelId, ulong? messageId, string question, IReadOnlyList<(int id, string name, string emoteName)> options, IReadOnlyList<ulong> roleIds, int allowedVotes, bool isSecretBallot, DateTimeOffset start, DateTimeOffset? end)> GetPollAsync(int pollId);
+
+        Task<IReadOnlyDictionary<int, IReadOnlyList<ulong>>> GetPollResultsAsync(int pollId);
+
+        Task<IReadOnlyList<ulong>> GetPollingRolesAsync(ulong channelId);
+
+        Task<IReadOnlyList<(int pollId, DateTimeOffset start)>> GetOpenOrPendingPollsForGuildAsync(ulong guildId);
+
+        Task<IReadOnlyList<int>> GetPollVotesForUserAsync(int pollId, ulong userId);
+
+        Task RemovePollingRoleAsync(ulong channelId, ulong roleId);
+
+        Task RetractPollVoteAsync(ulong userId, int optionId);
+
+        Task SetPollMessageAsync(int pollId, ulong messageId);
+
+        #endregion Polling
+
         #region SuicideKings
 
         Task<int> AddSuicideKingsDropAsync(int listId, int memberId, DateTimeOffset timeStamp, string? reason);

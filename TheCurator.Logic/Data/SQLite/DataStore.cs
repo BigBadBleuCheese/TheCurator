@@ -97,6 +97,15 @@ namespace TheCurator.Logic.Data.SQLite
                 await connection.ExecuteAsync("drop table Snowflake;");
                 schemaVersion = 2;
             }
+            if (schemaVersion == 2)
+            {
+                await connection.CreateTableAsync<Poll>().ConfigureAwait(false);
+                await connection.CreateTableAsync<PollingRole>().ConfigureAwait(false);
+                await connection.CreateTableAsync<PollOption>().ConfigureAwait(false);
+                await connection.CreateTableAsync<PollRole>().ConfigureAwait(false);
+                await connection.CreateTableAsync<PollVote>().ConfigureAwait(false);
+                schemaVersion = 3;
+            }
             if (schemaVersion != readSchemaVersion)
                 await connection.ExecuteScalarAsync<int>($"PRAGMA user_version = {schemaVersion};").ConfigureAwait(false);
         }
@@ -131,6 +140,131 @@ namespace TheCurator.Logic.Data.SQLite
         }
 
         #endregion Counting
+
+        #region Polling
+
+        public async Task<int> AddPollAsync(ulong authorId, ulong guildId, ulong channelId, string question, IReadOnlyList<(string name, string emoteName)> options, IReadOnlyList<ulong> roleIds, int allowedVotes, bool isSecretBallot, DateTimeOffset start, DateTimeOffset? end)
+        {
+            var poll = new Poll
+            {
+                AllowedVotes = allowedVotes,
+                AuthorId = authorId.ToSigned(),
+                ChannelId = channelId.ToSigned(),
+                End = end,
+                GuildId = guildId.ToSigned(),
+                IsSecretBallot = isSecretBallot,
+                Question = question,
+                Start = start
+            };
+            await connection.InsertAsync(poll).ConfigureAwait(false);
+            var pollId = poll.PollId;
+            var insertObjects = new List<object>();
+            insertObjects.AddRange(options.Select((option, index) => new PollOption
+            {
+                EmoteName = option.emoteName,
+                Name = option.name,
+                Order = index + 1,
+                PollId = pollId
+            }));
+            insertObjects.AddRange(roleIds.Select(roleId => new PollRole
+            {
+                PollId = pollId,
+                RoleId = roleId.ToSigned()
+            }));
+            await connection.InsertAllAsync(insertObjects).ConfigureAwait(false);
+            return pollId;
+        }
+
+        public async Task AddPollingRoleAsync(ulong channelId, ulong roleId) =>
+            await connection.InsertAsync(new PollingRole
+            {
+                ChannelId = channelId.ToSigned(),
+                RoleId = roleId.ToSigned()
+            }).ConfigureAwait(false);
+
+        public Task CastPollVoteAsync(ulong userId, int optionId) =>
+            connection.InsertAsync(new PollVote
+            {
+                OptionId = optionId,
+                UserId = userId.ToSigned()
+            });
+
+        public async Task ClosePollAsync(int pollId)
+        {
+            var poll = await connection.GetAsync<Poll>(pollId).ConfigureAwait(false);
+            poll.End = DateTimeOffset.UtcNow;
+            await connection.UpdateAsync(poll).ConfigureAwait(false);
+        }
+
+        public async Task<IReadOnlyList<(int pollId, DateTimeOffset start)>> GetOpenOrPendingPollsForGuildAsync(ulong guildId)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var gId = guildId.ToSigned();
+            return (await connection.Table<Poll>().Where(poll => poll.GuildId == gId && (poll.End == null || poll.End > now)).ToListAsync().ConfigureAwait(false)).Select(poll => (poll.PollId, poll.Start)).ToImmutableArray();
+        }
+
+        public async Task<(ulong authorId, ulong guildId, ulong channelId, ulong? messageId, string question, IReadOnlyList<(int id, string name, string emoteName)> options, IReadOnlyList<ulong> roleIds, int allowedVotes, bool isSecretBallot, DateTimeOffset start, DateTimeOffset? end)> GetPollAsync(int pollId)
+        {
+            var poll = await connection.GetAsync<Poll>(pollId).ConfigureAwait(false);
+            var options = await connection.Table<PollOption>().Where(option => option.PollId == pollId).OrderBy(option => option.Order).ToListAsync().ConfigureAwait(false);
+            var roles = await connection.Table<PollRole>().Where(role => role.PollId == pollId).ToListAsync().ConfigureAwait(false);
+            return
+            (
+                poll.AuthorId.ToUnsigned(),
+                poll.GuildId.ToUnsigned(),
+                poll.ChannelId.ToUnsigned(),
+                poll.MessageId?.ToUnsigned(),
+                poll.Question!,
+                options.Select(option => (option.OptionId, option.Name, option.EmoteName)).ToImmutableArray(),
+                roles.Select(role => role.RoleId.ToUnsigned()).ToImmutableArray(),
+                poll.AllowedVotes,
+                poll.IsSecretBallot,
+                poll.Start,
+                poll.End
+            );
+        }
+
+        public async Task<IReadOnlyList<ulong>> GetPollingRolesAsync(ulong channelId)
+        {
+            var roles = new List<ulong>();
+            var cId = channelId.ToSigned();
+            foreach (var roleId in (await connection.Table<PollingRole>().Where(r => r.ChannelId == cId).ToListAsync().ConfigureAwait(false)).Select(r => r.RoleId))
+                roles.Add(roleId.ToUnsigned());
+            return roles;
+        }
+
+        public async Task<IReadOnlyDictionary<int, IReadOnlyList<ulong>>> GetPollResultsAsync(int pollId) =>
+            (await connection.QueryAsync<PollVote>("select v.OptionId, v.UserId from PollVote v join PollOption o on o.OptionId = v.OptionId where o.PollId = ?", pollId).ConfigureAwait(false)).GroupBy(v => v.OptionId).ToImmutableDictionary(g => g.Key, g => (IReadOnlyList<ulong>)g.Select(v => v.UserId.ToUnsigned()).ToImmutableArray());
+
+        public async Task<IReadOnlyList<int>> GetPollVotesForUserAsync(int pollId, ulong userId)
+        {
+            var optionIds = (await connection.Table<PollOption>().Where(option => option.PollId == pollId).ToListAsync().ConfigureAwait(false)).Select(option => option.OptionId).ToArray();
+            var uId = userId.ToSigned();
+            var votes = await connection.Table<PollVote>().Where(vote => optionIds.Contains(vote.OptionId) && vote.UserId == uId).ToListAsync().ConfigureAwait(false);
+            return votes.Select(vote => vote.OptionId).ToImmutableArray();
+        }
+
+        public async Task RemovePollingRoleAsync(ulong channelId, ulong roleId)
+        {
+            var cId = channelId.ToSigned();
+            var rId = roleId.ToSigned();
+            await connection.Table<PollingRole>().DeleteAsync(r => r.ChannelId == cId && r.RoleId == rId).ConfigureAwait(false);
+        }
+
+        public Task RetractPollVoteAsync(ulong userId, int optionId)
+        {
+            var uId = userId.ToSigned();
+            return connection.Table<PollVote>().Where(vote => vote.UserId == uId && vote.OptionId == optionId).DeleteAsync();
+        }
+
+        public async Task SetPollMessageAsync(int pollId, ulong messageId)
+        {
+            var poll = await connection.GetAsync<Poll>(pollId).ConfigureAwait(false);
+            poll.MessageId = messageId.ToSigned();
+            await connection.UpdateAsync(poll).ConfigureAwait(false);
+        }
+
+        #endregion Polling
 
         #region SuicideKings
 

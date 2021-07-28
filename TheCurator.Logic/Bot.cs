@@ -100,6 +100,7 @@ namespace TheCurator.Logic
                                 {
                                     await message.Channel.SendMessageAsync(embed: new EmbedBuilder
                                     {
+                                        Author = GetEmbedAuthorBuilder(),
                                         Title = $"Features",
                                         Fields = features.OrderBy(feature => feature.Name).Select(feature => new EmbedFieldBuilder
                                         {
@@ -116,6 +117,7 @@ namespace TheCurator.Logic
                                     {
                                         await message.Channel.SendMessageAsync(embed: new EmbedBuilder
                                         {
+                                            Author = GetEmbedAuthorBuilder(),
                                             Title = $"{feature.Name} requests",
                                             Fields = feature.Examples.Select(example => new EmbedFieldBuilder
                                             {
@@ -143,7 +145,14 @@ namespace TheCurator.Logic
             }
         }
 
-        static IEnumerable<string> GetRequestArguments(string request)
+        public static EmbedAuthorBuilder GetEmbedAuthorBuilder() => new EmbedAuthorBuilder
+        {
+            Name = "The Curator",
+            Url = "https://github.com/BigBadBleuCheese/TheCurator",
+            IconUrl = "https://raw.githubusercontent.com/BigBadBleuCheese/TheCurator/master/The_Curator.jpg"
+        };
+
+        public static IEnumerable<string> GetRequestArguments(string request)
         {
             string text;
             var argument = new StringBuilder();

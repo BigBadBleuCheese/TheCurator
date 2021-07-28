@@ -74,6 +74,7 @@ namespace TheCurator.Logic.Features
                 });
             await channel.SendMessageAsync(embed: new EmbedBuilder
             {
+                Author = Bot.GetEmbedAuthorBuilder(),
                 Title = $"Current State of Sub Lists",
                 Fields = fieldEmbeds,
                 Timestamp = DateTimeOffset.UtcNow
@@ -92,6 +93,7 @@ namespace TheCurator.Logic.Features
                 });
             await channel.SendMessageAsync(embed: new EmbedBuilder
             {
+                Author = Bot.GetEmbedAuthorBuilder(),
                 Title = $"Current State of Master Lists",
                 Fields = fieldEmbeds,
                 Timestamp = DateTimeOffset.UtcNow
@@ -355,6 +357,7 @@ namespace TheCurator.Logic.Features
                                             });
                                         await message.Channel.SendMessageAsync(embed: new EmbedBuilder
                                         {
+                                            Author = Bot.GetEmbedAuthorBuilder(),
                                             Title = $"Registered Drop",
                                             Fields = fieldEmbeds,
                                             Timestamp = DateTimeOffset.UtcNow
