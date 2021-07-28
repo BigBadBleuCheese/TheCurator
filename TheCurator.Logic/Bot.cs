@@ -78,7 +78,7 @@ namespace TheCurator.Logic
             if (message.Author.Id != Client.CurrentUser.Id && message.Channel is IGuildChannel guildChannel)
             {
                 var currentGuildUser = await guildChannel.Guild.GetCurrentUserAsync();
-                if (currentGuildUser is SocketGuildUser currentSocketGuildUser && new string[] { $"!{currentGuildUser.Id}" }.Concat(currentSocketGuildUser.Roles.Select(r => $"&{r.Id}")).Select(id => $"<@{id}>").FirstOrDefault(ap => message.Content.StartsWith(ap)) is { } atPrefix)
+                if (currentGuildUser is SocketGuildUser currentSocketGuildUser && new string[] { $"{currentGuildUser.Id}", $"!{currentGuildUser.Id}" }.Concat(currentSocketGuildUser.Roles.Select(r => $"{r.Id}")).Concat(currentSocketGuildUser.Roles.Select(r => $"&{r.Id}")).Select(id => $"<@{id}>").FirstOrDefault(ap => message.Content.StartsWith(ap)) is { } atPrefix)
                 {
                     var requestArgs = GetRequestArguments(message.Content.Substring(atPrefix.Length)).ToImmutableArray();
                     var requestProcessed = false;
