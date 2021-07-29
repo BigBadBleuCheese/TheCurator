@@ -66,10 +66,18 @@ namespace TheCurator.Logic.Features
         {
             var fieldEmbeds = new List<EmbedFieldBuilder>();
             foreach (var (listId, listName) in (await dataStore.GetSuicideKingsListsAsync(channel.Id).ConfigureAwait(false)).OrderBy(l => l.name))
+                if (await GetEventSublistAsync(channel, listId).ConfigureAwait(false) is { } list && list.Count > 0)
+                    fieldEmbeds.Add(new EmbedFieldBuilder
+                    {
+                        Name = listName,
+                        Value = string.Join("\n", list),
+                        IsInline = true
+                    });
+            if (fieldEmbeds.Count == 0)
                 fieldEmbeds.Add(new EmbedFieldBuilder
                 {
-                    Name = listName,
-                    Value = string.Join("\n", await GetEventSublistAsync(channel, listId).ConfigureAwait(false)),
+                    Name = "No Member Entries",
+                    Value = "You need to use the `member add` command to introduce players to have on your lists.",
                     IsInline = true
                 });
             await channel.SendMessageAsync(embed: new EmbedBuilder
@@ -85,10 +93,18 @@ namespace TheCurator.Logic.Features
         {
             var fieldEmbeds = new List<EmbedFieldBuilder>();
             foreach (var (listId, listName) in (await dataStore.GetSuicideKingsListsAsync(channel.Id).ConfigureAwait(false)).OrderBy(l => l.name))
+                if (await GetMasterListAsync(channel, listId).ConfigureAwait(false) is { } list && list.Count > 0)
+                    fieldEmbeds.Add(new EmbedFieldBuilder
+                    {
+                        Name = listName,
+                        Value = string.Join("\n", list),
+                        IsInline = true
+                    });
+            if (fieldEmbeds.Count == 0)
                 fieldEmbeds.Add(new EmbedFieldBuilder
                 {
-                    Name = listName,
-                    Value = string.Join("\n", await GetMasterListAsync(channel, listId).ConfigureAwait(false)),
+                    Name = "No Member Entries",
+                    Value = "You need to use the `member add` command to introduce players to have on your lists.",
                     IsInline = true
                 });
             await channel.SendMessageAsync(embed: new EmbedBuilder

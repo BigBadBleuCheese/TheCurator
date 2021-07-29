@@ -307,13 +307,25 @@ namespace TheCurator.Logic.Data.SQLite
 
         public async Task<int> AddSuicideKingsMemberAsync(ulong channelId, string name)
         {
-            var member = new SuicideKingsMember
+            var cId = channelId.ToSigned();
+            var alreadyExistingRetiredMember = await connection.Table<SuicideKingsMember>().FirstOrDefaultAsync(e => e.ChannelId == cId && e.Name == name && e.Retired != null).ConfigureAwait(false);
+            if (alreadyExistingRetiredMember is null)
             {
-                ChannelId = channelId.ToSigned(),
-                Name = name
-            };
-            await connection.InsertOrReplaceAsync(member).ConfigureAwait(false);
-            return member.MemberId;
+                var member = new SuicideKingsMember
+                {
+                    ChannelId = cId,
+                    Name = name
+                };
+                await connection.InsertAsync(member).ConfigureAwait(false);
+                return member.MemberId;
+            }
+            else
+            {
+                alreadyExistingRetiredMember.Retired = null;
+                await connection.UpdateAsync(alreadyExistingRetiredMember).ConfigureAwait(false);
+                await connection.ExecuteAsync("delete from SuicideKingsListEntry where MemberId = ?", alreadyExistingRetiredMember.MemberId).ConfigureAwait(false);
+                return alreadyExistingRetiredMember.MemberId;
+            }
         }
 
         public async Task AddSuicideKingsRoleAsync(ulong guildId, ulong roleId) =>
@@ -379,11 +391,8 @@ namespace TheCurator.Logic.Data.SQLite
         {
             var member = await connection.GetAsync<SuicideKingsMember>(memberId).ConfigureAwait(false);
             member.Retired = DateTimeOffset.UtcNow;
-            var entries = await connection.Table<SuicideKingsListEntry>().Where(e => e.MemberId == memberId).ToListAsync().ConfigureAwait(false);
-            foreach (var entry in entries)
-                entry.Position = -1;
             await connection.UpdateAsync(member).ConfigureAwait(false);
-            await connection.UpdateAllAsync(entries).ConfigureAwait(false);
+            await connection.ExecuteAsync("update SuicideKingsListEntry set Position = -1 where MemberId = ?", memberId).ConfigureAwait(false);
         }
 
         public async Task SetSuicideKingsListMemberEntryAsync(int listId, int memberId, int position)
