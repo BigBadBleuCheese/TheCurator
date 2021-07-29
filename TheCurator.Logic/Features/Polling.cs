@@ -148,8 +148,11 @@ namespace TheCurator.Logic.Features
                             })
                         );
                 var sentMessage = await channel.SendMessageAsync(embed: embedBuilder.Build()).ConfigureAwait(false);
-                foreach (var voter in results.SelectMany(kv => kv.Value).Distinct())
+                var distinctVoters = results.SelectMany(kv => kv.Value).Distinct();
+                foreach (var voter in distinctVoters)
                     await guildChannel.Guild.GetUser(voter).SendMessageAsync($"A poll in which you cast a vote has concluded. To see the results, click here: {sentMessage.GetJumpUrl()}").ConfigureAwait(false);
+                if (!distinctVoters.Contains(authorId))
+                    await guildChannel.Guild.GetUser(authorId).SendMessageAsync($"A poll you created has concluded. To see the results, click here: {sentMessage.GetJumpUrl()}").ConfigureAwait(false);
             }
         }
 
@@ -253,9 +256,10 @@ namespace TheCurator.Logic.Features
 
         async Task ClientReactionAdded(Cacheable<IUserMessage, ulong> cacheableMessage, ISocketMessageChannel channel, SocketReaction reaction)
         {
+            var guildChannel = channel as SocketGuildChannel;
             if (pollsUnderConstructionByMessageId.TryGetValue(cacheableMessage.Id, out var pollBuilder) &&
                 await channel.GetMessageAsync(cacheableMessage.Id).ConfigureAwait(false) is IUserMessage pollBuilderMessage &&
-                channel is SocketGuildChannel guildChannel)
+                guildChannel is not null)
             {
                 if (reaction.UserId == pollBuilder.AuthorId)
                 {
@@ -373,6 +377,23 @@ namespace TheCurator.Logic.Features
                             {
                                 await dataStore.CastPollVoteAsync(reactingUser.Id, selectedPollOption.id).ConfigureAwait(false);
                                 await reactingUser.SendMessageAsync($"Your vote for **{selectedPollOption.name}** has been counted. To go back to the poll, click here: {pollMessage.GetJumpUrl()}").ConfigureAwait(false);
+                            }
+                        }
+                        else if (guildChannel is not null && allowedVotes != 0)
+                        {
+                            var existingVotesForUser = 0;
+                            foreach (var kv in pollMessage.Reactions)
+                            {
+                                var reactionEmote = kv.Key;
+                                if (options.FirstOrDefault(option => option.emoteName == reactionEmote.Name) is { } emoteOption &&
+                                    !string.IsNullOrWhiteSpace(emoteOption.emoteName) &&
+                                    (await AsyncEnumerableExtensions.FlattenAsync(pollMessage.GetReactionUsersAsync(reactionEmote, int.MaxValue)).ConfigureAwait(false)).Any(u => u.Id == reactingUser.Id))
+                                    ++existingVotesForUser;
+                            }
+                            if (existingVotesForUser > allowedVotes)
+                            {
+                                await pollMessage.RemoveReactionAsync(reaction.Emote, reactingUser).ConfigureAwait(false);
+                                await reactingUser.SendMessageAsync($"You have already reached the maximum of **{allowedVotes}** vote{(allowedVotes == 1 ? string.Empty : "s")}. You must clear one or more of your previous reactions to the poll in order to make a new one which will cast a different vote. To go back to the poll, click here: {pollMessage.GetJumpUrl()}").ConfigureAwait(false);
                             }
                         }
                     }
