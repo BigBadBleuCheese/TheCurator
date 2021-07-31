@@ -418,7 +418,7 @@ namespace TheCurator.Logic.Features
             if (message.Channel is SocketGuildChannel guildChannel && activePollIdByMessageId.TryGetValue(message.Id, out var activePoll))
             {
                 var (_, _, _, _, _, options, roleIds, allowedVotes, isSecretBallot, _, _) = await dataStore.GetPollAsync(activePoll.pollId).ConfigureAwait(false);
-                var votesByUserId = new Dictionary<ulong, List<int>>();
+                var votesByUserId = new Dictionary<ulong, HashSet<int>>();
                 if (!isSecretBallot)
                 {
                     foreach (var kv in message.Reactions)
@@ -436,7 +436,7 @@ namespace TheCurator.Logic.Features
                                     {
                                         if (!votesByUserId.TryGetValue(guildUser.Id, out var userOptionIds))
                                         {
-                                            userOptionIds = new List<int>();
+                                            userOptionIds = new HashSet<int>();
                                             votesByUserId.Add(guildUser.Id, userOptionIds);
                                         }
                                         userOptionIds.Add(emoteOption.id);
@@ -445,8 +445,9 @@ namespace TheCurator.Logic.Features
                             }
                         }
                     }
-                    foreach (var userId in votesByUserId.Keys)
-                        votesByUserId[userId] = votesByUserId[userId].Distinct().Take(allowedVotes).ToList();
+                    if (allowedVotes > 0)
+                        foreach (var userId in votesByUserId.Keys)
+                            votesByUserId[userId] = votesByUserId[userId].Take(allowedVotes).ToHashSet();
                     await dataStore.RemoveAllPollResultsAsync(activePoll.pollId).ConfigureAwait(false);
                     foreach (var kv in votesByUserId)
                     {
