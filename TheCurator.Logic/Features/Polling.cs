@@ -572,8 +572,8 @@ namespace TheCurator.Logic.Features
             var embedBuilder = new EmbedBuilder
             {
                 Author = Bot.GetEmbedAuthorBuilder(),
-                Title = question,
-                Description = $"React to this message to cast a vote for one of the following options:\n\n{string.Join("\n", options.Select(option => $"{option.emoteName} {option.name}"))}",
+                Title = "Poll",
+                Description = $"{question}\n\nReact to this message to cast a vote for one of the following options:\n\n{string.Join("\n", options.Select(option => $"{option.emoteName} {option.name}"))}",
                 Timestamp = start,
                 Fields = embedFields
             };
