@@ -1,5 +1,6 @@
 using Cogs.Disposal;
 using Discord;
+using Discord.Net;
 using Discord.WebSocket;
 using System;
 using System.Collections.Concurrent;
@@ -7,6 +8,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using TheCurator.Logic.Data;
@@ -203,7 +205,7 @@ namespace TheCurator.Logic.Features
                             if (!string.IsNullOrWhiteSpace(messageContent))
                             {
                                 pollBuilder.Options.Clear();
-                                pollBuilder.Options.AddRange(Bot.GetRequestArguments(messageContent).Take(optionEmoteChars.Length));
+                                pollBuilder.Options.AddRange(Bot.GetRequestArguments(messageContent).Take(Math.Min(18, optionEmoteChars.Length)));
                                 stateChanged = true;
                             }
                             break;
@@ -516,7 +518,8 @@ namespace TheCurator.Logic.Features
         async Task<(ulong messageId, DateTimeOffset? end)> DisplayPollAsync(int pollId)
         {
             var (authorId, guildId, channelId, messageId, question, options, roleIds, allowedVotes, isSecretBallot, start, end) = await dataStore.GetPollAsync(pollId).ConfigureAwait(false);
-            var channel = bot.Client.GetGuild(guildId).GetTextChannel(channelId);
+            var guild = bot.Client.GetGuild(guildId);
+            var channel = guild.GetTextChannel(channelId);
             var message = messageId is { } nonNullMessageId ? (await channel.GetMessageAsync(nonNullMessageId).ConfigureAwait(false) is IUserMessage userMessage ? userMessage : null) : null;
             var embedFields = new List<EmbedFieldBuilder>
             {
@@ -588,11 +591,27 @@ namespace TheCurator.Logic.Features
                     props.Content = $"I request the feedback of {(roleIds.Count == 0 ? "anyone seeing this" : string.Join(", ", roleIds.Select(roleId => $"<@&{roleId}>")))} for the following poll.";
                     props.Embed = embedBuilder.Build();
                 }).ConfigureAwait(false);
-            await message.AddReactionsAsync(options.Select(option => new Emoji(option.emoteName)).Concat(new IEmote[]
+            try
             {
-                new Emoji("✅")
-            }).ToArray()).ConfigureAwait(false);
-            await message.PinAsync().ConfigureAwait(false);
+                await message.AddReactionsAsync(options.Select(option => new Emoji(option.emoteName)).Concat(new IEmote[]
+                {
+                    new Emoji("✅")
+                }).ToArray()).ConfigureAwait(false);
+            }
+            catch (HttpException ex)
+            {
+                var author = guild.GetUser(authorId);
+                await author.SendMessageAsync($"The Discord API didn't like me adding further reactions to a poll message. Its response was `{ex.HttpCode}`. Here's a link to the poll message: {message.GetJumpUrl()}").ConfigureAwait(false);
+            }
+            try
+            {
+                await message.PinAsync().ConfigureAwait(false);
+            }
+            catch (HttpException ex)
+            {
+                var author = guild.GetUser(authorId);
+                await author.SendMessageAsync($"The Discord API didn't like me pinning a poll message. Its response was `{ex.HttpCode}`. Here's a link to the poll message: {message.GetJumpUrl()}").ConfigureAwait(false);
+            }
             return (message.Id, end);
         }
 
