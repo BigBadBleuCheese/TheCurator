@@ -20,6 +20,7 @@
 
     <ItemGroup>
         <PackageReference Include="Autofac" Version="6.2.0" />
+        <PackageReference Include="Ben.Demystifier" Version="0.4.1" />
         <PackageReference Include="Cogs.Exceptions" Version="1.0.2" />
         <PackageReference Include="sqlite-net-pcl" Version="1.7.335" />
         <PackageReference Include="System.ServiceProcess.ServiceController" Version="5.0.0" />

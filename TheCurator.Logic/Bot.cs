@@ -29,6 +29,7 @@ namespace TheCurator.Logic
             Client = new DiscordSocketClient();
             features = featureCatalog.Services.Select(type => this.lifetimeScope.Resolve(type)).OfType<IFeature>().ToImmutableArray();
         }
+
         readonly IDataStore dataStore;
         readonly IEnumerable<IFeature> features;
         readonly AsyncLock initializationAccess = new AsyncLock();
