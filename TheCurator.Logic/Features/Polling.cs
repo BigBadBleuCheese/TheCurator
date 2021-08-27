@@ -600,8 +600,15 @@ namespace TheCurator.Logic.Features
             }
             catch (HttpException ex)
             {
-                var author = guild.GetUser(authorId);
-                await author.SendMessageAsync($"The Discord API didn't like me adding further reactions to a poll message. Its response was `{ex.HttpCode}`. Here's a link to the poll message: {message.GetJumpUrl()}").ConfigureAwait(false);
+                try
+                {
+                    var author = guild.GetUser(authorId);
+                    await author.SendMessageAsync($"The Discord API didn't like me adding further reactions to a poll message. Its response was `{ex.HttpCode}`. Here's a link to the poll message: {message.GetJumpUrl()}").ConfigureAwait(false);
+                }
+                catch
+                {
+                    // nothing can be done here
+                }
             }
             try
             {
@@ -609,8 +616,15 @@ namespace TheCurator.Logic.Features
             }
             catch (HttpException ex)
             {
-                var author = guild.GetUser(authorId);
-                await author.SendMessageAsync($"The Discord API didn't like me pinning a poll message. Its response was `{ex.HttpCode}`. Here's a link to the poll message: {message.GetJumpUrl()}").ConfigureAwait(false);
+                try
+                {
+                    var author = guild.GetUser(authorId);
+                    await author.SendMessageAsync($"The Discord API didn't like me pinning a poll message. Its response was `{ex.HttpCode}`. Here's a link to the poll message: {message.GetJumpUrl()}").ConfigureAwait(false);
+                }
+                catch
+                {
+                    // nothing can be done here
+                }
             }
             return (message.Id, end);
         }
