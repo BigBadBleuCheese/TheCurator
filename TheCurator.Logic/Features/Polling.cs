@@ -8,7 +8,6 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using TheCurator.Logic.Data;
@@ -62,10 +61,11 @@ namespace TheCurator.Logic.Features
                 pollsAwaitingDisplay.Add(poll);
         }
 
-        async Task ClientMessageDeleted(Cacheable<IMessage, ulong> cacheableMessage, ISocketMessageChannel channel)
+        async Task ClientMessageDeleted(Cacheable<IMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel)
         {
             if (activePollIdByMessageId.TryRemove(cacheableMessage.Id, out var activePoll))
             {
+                var channel = await cacheableChannel.GetOrDownloadAsync().ConfigureAwait(false);
                 var guildChannel = (SocketGuildChannel)channel;
                 var (authorId, _, _, _, question, options, roleIds, allowedVotes, isSecretBallot, _, end) = await dataStore.GetPollAsync(activePoll.pollId).ConfigureAwait(false);
                 var results = await dataStore.GetPollResultsAsync(activePoll.pollId).ConfigureAwait(false);
@@ -256,9 +256,10 @@ namespace TheCurator.Logic.Features
             }
         }
 
-        async Task ClientReactionAdded(Cacheable<IUserMessage, ulong> cacheableMessage, ISocketMessageChannel channel, SocketReaction reaction)
+        async Task ClientReactionAdded(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, SocketReaction reaction)
         {
-            var guildChannel = channel as SocketGuildChannel;
+            var channel = await cacheableChannel.GetOrDownloadAsync().ConfigureAwait(false);
+            var guildChannel = (SocketGuildChannel)channel;
             if (pollsUnderConstructionByMessageId.TryGetValue(cacheableMessage.Id, out var pollBuilder) &&
                 await channel.GetMessageAsync(cacheableMessage.Id).ConfigureAwait(false) is IUserMessage pollBuilderMessage &&
                 guildChannel is not null)
@@ -454,13 +455,13 @@ namespace TheCurator.Logic.Features
             }
         }
 
-        async Task ClientReactionRemoved(Cacheable<IUserMessage, ulong> cacheableMessage, ISocketMessageChannel channel, SocketReaction reaction)
+        async Task ClientReactionRemoved(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, SocketReaction reaction)
         {
             if (reaction.UserId == bot.Client.CurrentUser.Id && (pollsUnderConstructionByMessageId.ContainsKey(cacheableMessage.Id) || activePollIdByMessageId.ContainsKey(cacheableMessage.Id)))
                 await (await cacheableMessage.GetOrDownloadAsync().ConfigureAwait(false)).AddReactionAsync(reaction.Emote).ConfigureAwait(false);
         }
 
-        async Task ClientReactionsCleared(Cacheable<IUserMessage, ulong> cacheableMessage, ISocketMessageChannel channel)
+        async Task ClientReactionsCleared(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel)
         {
             if (pollsUnderConstructionByMessageId.ContainsKey(cacheableMessage.Id))
                 await (await cacheableMessage.GetOrDownloadAsync().ConfigureAwait(false)).AddReactionsAsync
@@ -483,7 +484,7 @@ namespace TheCurator.Logic.Features
                 await DisplayPollAsync(activePoll.pollId).ConfigureAwait(false);
         }
 
-        async Task ClientReactionsRemovedForEmote(Cacheable<IUserMessage, ulong> cacheableMessage, ISocketMessageChannel channel, IEmote emote)
+        async Task ClientReactionsRemovedForEmote(Cacheable<IUserMessage, ulong> cacheableMessage, Cacheable<IMessageChannel, ulong> cacheableChannel, IEmote emote)
         {
             if (pollsUnderConstructionByMessageId.ContainsKey(cacheableMessage.Id))
                 await(await cacheableMessage.GetOrDownloadAsync().ConfigureAwait(false)).AddReactionsAsync
