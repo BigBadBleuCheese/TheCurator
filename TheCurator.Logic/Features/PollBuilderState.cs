@@ -1,14 +1,13 @@
-namespace TheCurator.Logic.Features
+namespace TheCurator.Logic.Features;
+
+public enum PollBuilderState
 {
-    public enum PollBuilderState
-    {
-        None,
-        Question,
-        Options,
-        AllowedVotes,
-        Roles,
-        Start,
-        Duration,
-        End
-    }
+    None,
+    Question,
+    Options,
+    AllowedVotes,
+    Roles,
+    Start,
+    Duration,
+    End
 }

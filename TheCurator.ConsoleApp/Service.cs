@@ -1,8 +1,11 @@
 using Autofac;
 using Cogs.Exceptions;
 using Discord;
+using System;
 using System.Diagnostics;
+using System.IO;
 using System.ServiceProcess;
+using System.Threading.Tasks;
 using TheCurator.Logic;
 
 namespace TheCurator.ConsoleApp

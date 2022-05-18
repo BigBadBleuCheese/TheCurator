@@ -1,7 +1,10 @@
 using Autofac;
 using Cogs.Exceptions;
 using Discord;
+using System;
 using System.ServiceProcess;
+using System.Threading;
+using System.Threading.Tasks;
 using TheCurator.Logic;
 
 namespace TheCurator.ConsoleApp
@@ -30,7 +33,9 @@ namespace TheCurator.ConsoleApp
 
         static Task ClientLogAsync(LogMessage message)
         {
-            Console.Error.WriteLine($"An unexpected event occurred when communicating with the Discord API: {message.Message} ({message.Severity})\r\n{message.Exception.GetFullDetails()}");
+            Console.WriteLine($"[{message.Severity}] {message.Message}");
+            if (message.Exception is { } ex)
+                Console.WriteLine(message.Exception?.GetFullDetails());
             return Task.CompletedTask;
         }
     }
