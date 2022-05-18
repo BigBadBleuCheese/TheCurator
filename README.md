@@ -2,10 +2,17 @@
 
 The Curator is the home-brew management bot for the Honor and Valor World of Warcraft Guild Discord Server.
 
+- [Requirements](#requirements)
+  - [FFmpeg](#ffmpeg)
 - [Installing The Curator](#installing-the-curator)
 - [Making Requests of The Curator](#making-requests-of-the-curator)
 - [License](#license)
 - [Contributing](#contributing)
+
+# Requirements
+
+## FFmpeg
+In order to play audio in Discord, The Curator requires that [FFmpeg](https://ffmpeg.org/download.html) is on the machine hosting him and that its `ffmpeg.exe` binary is [discoverable via the `PATH` environment variable](https://helpdeskgeek.com/windows-10/add-windows-path-environment-variable/).
 
 # Installing The Curator
 The Curator is built using Visual Studio 2022 / .NET 6.
@@ -22,13 +29,10 @@ Use the Services MMC snap-in to start The Curator.
 If the service won't start, check the Windows Event Log for details.
 
 # Making Requests of The Curator
-
 Just @ The Curator once you've added him to your Discord server and say `help` for a list of features and how to use them.
 
 # License
-
 [Apache 2.0 License](LICENSE)
 
 # Contributing
-
 [Click here](CONTRIBUTING.md) to learn how to contribute.
