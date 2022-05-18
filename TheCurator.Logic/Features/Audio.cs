@@ -1,10 +1,10 @@
 namespace TheCurator.Logic.Features;
 
-public class Voice :
+public class Audio :
     SyncDisposable,
     IFeature
 {
-    public Voice()
+    public Audio()
     {
         playedIndexes = new();
         playlist = new();
@@ -44,7 +44,7 @@ public class Voice :
         };
 
     public string Name =>
-        "Voice";
+        "Audio";
 
     public IReadOnlyList<string> RequestIdentifiers { get; }
 
