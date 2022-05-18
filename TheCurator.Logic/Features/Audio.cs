@@ -10,6 +10,7 @@ public class Audio :
         playlist = new();
         playerAccess = new();
         seekCommand = new();
+        skipCommand = new();
         shufflePlayedIndexes = new();
         streamingThrottle = new(true);
         RequestIdentifiers = new string[] { "audio", "voice" };
@@ -23,6 +24,7 @@ public class Audio :
     readonly List<FileInfo> playlist;
     RepeatMode repeatMode;
     readonly ConcurrentQueue<TimeSpan> seekCommand;
+    readonly ConcurrentQueue<bool> skipCommand;
     readonly List<int> shufflePlayedIndexes;
     readonly AsyncManualResetEvent streamingThrottle;
 
@@ -32,14 +34,16 @@ public class Audio :
     public IReadOnlyList<(string command, string description)> Examples =>
         new (string command, string description)[]
         {
+            ("back, prev, previous", "Move to the previous track"),
             ("join", "The Curator joins your current voice channel"),
             ("leave", "The Curator leaves whatever voice channel it is currently in"),
-            ("play [service?] [content]", "Adds something to the playlist from a service"),
             ("pause", "Pauses playback or resumes it if it is already paused"),
+            ("play [service?] [content]", "Adds something to the playlist from a service"),
             ("repeat", "Change the repeat mode"),
             ("resume", "Resumes playback if it is paused"),
             ("seek [position]", "Seek to a position in time in the current track"),
             ("shuffle", "Toggle shuffling"),
+            ("skip, next", "Move to the next track"),
             ("stop", "Stops playing any audio that it is currently playing")
         };
 
@@ -126,7 +130,12 @@ public class Audio :
             using (await playerAccess.LockAsync().ConfigureAwait(false))
             {
                 var playlistIndex = playedIndexes.LastOrDefault();
-                if (repeatMode != RepeatMode.Single)
+                if (skipCommand.TryDequeue(out var skip) && !skip)
+                {
+                    playedIndexes.RemoveAt(playedIndexes.Count - 1);
+                    playlistIndex = playedIndexes.LastOrDefault();
+                }
+                else if (repeatMode != RepeatMode.Single)
                 {
                     if (isShuffling)
                     {
@@ -159,7 +168,8 @@ public class Audio :
                 if (playlistIndex >= 0 && playlistIndex < playlist.Count)
                 {
                     fileInfo = playlist[playlistIndex];
-                    playedIndexes.Add(playlistIndex);
+                    if (playedIndexes.Count == 0 || playedIndexes.LastOrDefault() != playlistIndex)
+                        playedIndexes.Add(playlistIndex);
                 }
             }
             try
@@ -171,14 +181,14 @@ public class Audio :
                     {
                         using var ffmpegInstance = seekCommand.TryDequeue(out var seekTo) ? CreateFfmpegInstance(fileInfo.FullName, seekTo) : CreateFfmpegInstance(fileInfo.FullName);
                         using var ffmpegOutputStream = ffmpegInstance.StandardOutput.BaseStream;
-                        using var discordInputStream = audioClient.CreatePCMStream(AudioApplication.Music);
+                        using var discordInputStream = audioClient.CreatePCMStream(AudioApplication.Mixed);
                         try
                         {
                             var bytesRead = -1;
                             while (bytesRead != 0 && ffmpegOutputStream.CanRead)
                             {
                                 await streamingThrottle.WaitAsync().ConfigureAwait(false);
-                                if (seekCommand.TryPeek(out _))
+                                if (seekCommand.TryPeek(out _) || skipCommand.TryPeek(out _))
                                     break;
                                 var buffer = new byte[bufferSize];
                                 bytesRead = await ffmpegOutputStream.ReadAsync(buffer, 0, bufferSize).ConfigureAwait(false);
@@ -231,6 +241,12 @@ public class Audio :
         {
             if (commandArgs.Count == 2)
             {
+                if (command.Equals("back", StringComparison.OrdinalIgnoreCase) || command.Equals("prev", StringComparison.OrdinalIgnoreCase) || command.Equals("previous", StringComparison.OrdinalIgnoreCase))
+                {
+                    skipCommand.Enqueue(true);
+                    await message.Channel.SendMessageAsync("Moving to previous track.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                    return true;
+                }
                 if (command.Equals("join", StringComparison.OrdinalIgnoreCase))
                 {
                     if (message.Author is IGuildUser guildUser)
@@ -299,6 +315,12 @@ public class Audio :
                 {
                     isShuffling = !isShuffling;
                     await message.Channel.SendMessageAsync(isShuffling ? "Shuffling." : "Not shuffling.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                    return true;
+                }
+                if (command.Equals("skip", StringComparison.OrdinalIgnoreCase) || command.Equals("next", StringComparison.OrdinalIgnoreCase))
+                {
+                    skipCommand.Enqueue(true);
+                    await message.Channel.SendMessageAsync("Moving to next track.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                     return true;
                 }
                 if (command.Equals("stop", StringComparison.OrdinalIgnoreCase))
