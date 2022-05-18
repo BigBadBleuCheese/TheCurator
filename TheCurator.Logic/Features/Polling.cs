@@ -426,26 +426,17 @@ namespace TheCurator.Logic.Features
                     foreach (var kv in message.Reactions)
                     {
                         var emote = kv.Key;
-                        if (options.FirstOrDefault(option => option.emoteName == emote.Name) is { } emoteOption &&
-                            !string.IsNullOrWhiteSpace(emoteOption.emoteName))
-                        {
+                        if (options.FirstOrDefault(option => option.emoteName == emote.Name) is { } emoteOption && !string.IsNullOrWhiteSpace(emoteOption.emoteName))
                             foreach (var user in await AsyncEnumerableExtensions.FlattenAsync(message.GetReactionUsersAsync(emote, int.MaxValue)).ConfigureAwait(false))
-                            {
-                                if (!user.IsBot)
+                                if (!user.IsBot && guildChannel.Guild.GetUser(user.Id) is { } guildUser && (roleIds.Count == 0 || roleIds.Intersect(guildUser.Roles.Select(role => role.Id)).Any()))
                                 {
-                                    var guildUser = guildChannel.Guild.GetUser(user.Id);
-                                    if (roleIds.Count == 0 || roleIds.Intersect(guildUser.Roles.Select(role => role.Id)).Any())
+                                    if (!votesByUserId.TryGetValue(guildUser.Id, out var userOptionIds))
                                     {
-                                        if (!votesByUserId.TryGetValue(guildUser.Id, out var userOptionIds))
-                                        {
-                                            userOptionIds = new HashSet<int>();
-                                            votesByUserId.Add(guildUser.Id, userOptionIds);
-                                        }
-                                        userOptionIds.Add(emoteOption.id);
+                                        userOptionIds = new HashSet<int>();
+                                        votesByUserId.Add(guildUser.Id, userOptionIds);
                                     }
+                                    userOptionIds.Add(emoteOption.id);
                                 }
-                            }
-                        }
                     }
                     if (allowedVotes > 0)
                         foreach (var userId in votesByUserId.Keys)
