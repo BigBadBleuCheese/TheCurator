@@ -6,6 +6,8 @@ public class Audio :
 {
     public Audio()
     {
+        decibelAdjust = -12;
+        isLoudnessNormalized = true;
         playedIndexes = new();
         playlist = new();
         playerAccess = new();
@@ -17,6 +19,9 @@ public class Audio :
     }
 
     IAudioClient? audioClient;
+    double decibelAdjust;
+    int disconnectStage;
+    bool isLoudnessNormalized;
     bool isShuffling;
     CancellationTokenSource? playerCancellationTokenSource;
     readonly List<int> playedIndexes;
@@ -35,8 +40,10 @@ public class Audio :
         new (string command, string description)[]
         {
             ("back, prev, previous", "Move to the previous track"),
+            ("decibeladjust [delta?]", "Specify the positive or negative amount of decibels by which to adjust the audio volume"),
             ("join", "The Curator joins your current voice channel"),
             ("leave", "The Curator leaves whatever voice channel it is currently in"),
+            ("normalize", "Toggle loudness normalization"),
             ("pause", "Pauses playback or resumes it if it is already paused"),
             ("play [service?] [content]", "Adds something to the playlist from a service"),
             ("repeat", "Change the repeat mode"),
@@ -54,8 +61,23 @@ public class Audio :
 
     async Task AddPlaylistItemAsync(FileInfo fileInfo, Func<IVoiceChannel> getVoiceChannel)
     {
+        if (disconnectStage == 2)
+            return;
         using (await playerAccess.LockAsync().ConfigureAwait(false))
+        {
+            if (disconnectStage == 0 && playlist.Count == 0)
+            {
+                var appDirectoryInfo = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+                var resourcesDirectoryInfo = new DirectoryInfo(Path.Combine(appDirectoryInfo.FullName, "Resources"));
+                if (resourcesDirectoryInfo.Exists)
+                {
+                    var entranceSoundFileInfo = new FileInfo(Path.Combine(resourcesDirectoryInfo.FullName, "546638.mp3"));
+                    if (entranceSoundFileInfo.Exists)
+                        playlist.Add(entranceSoundFileInfo);
+                }
+            }
             playlist.Add(fileInfo);
+        }
         await PlayAsync(getVoiceChannel).ConfigureAwait(false);
     }
 
@@ -94,8 +116,26 @@ public class Audio :
     async Task DisconnectAsync()
     {
         await StopAsync().ConfigureAwait(false);
+        if (disconnectStage == 0)
+        {
+            var appDirectoryInfo = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+            var resourcesDirectoryInfo = new DirectoryInfo(Path.Combine(appDirectoryInfo.FullName, "Resources"));
+            if (resourcesDirectoryInfo.Exists)
+            {
+                var exitSoundFile = new FileInfo(Path.Combine(resourcesDirectoryInfo.FullName, "546641.mp3"));
+                if (exitSoundFile.Exists)
+                {
+                    disconnectStage = 1;
+                    await AddPlaylistItemAsync(exitSoundFile, () => throw new InvalidOperationException()).ConfigureAwait(false);
+                }
+            }
+            disconnectStage = 2;
+            return;
+        }
+        disconnectStage = 0;
         if (audioClient is not null)
         {
+            await audioClient.StopAsync().ConfigureAwait(false);
             audioClient.Dispose();
             audioClient = null;
         }
@@ -123,67 +163,72 @@ public class Audio :
 
     async Task PlayerLogicAsync()
     {
-        seekCommand.Clear();
-        while (true)
+        if (audioClient is null)
+            return;
+        using var discordInputStream = audioClient.CreatePCMStream(AudioApplication.Mixed);
+        try
         {
-            FileInfo? fileInfo = null;
-            using (await playerAccess.LockAsync().ConfigureAwait(false))
+            while (true)
             {
-                var playlistIndex = playedIndexes.LastOrDefault();
-                if (skipCommand.TryDequeue(out var skip) && !skip)
+                seekCommand.Clear();
+                FileInfo? fileInfo = null;
+                using (await playerAccess.LockAsync().ConfigureAwait(false))
                 {
-                    playedIndexes.RemoveAt(playedIndexes.Count - 1);
-                    playlistIndex = playedIndexes.LastOrDefault();
-                }
-                else if (repeatMode != RepeatMode.Single)
-                {
-                    if (isShuffling)
+                    var playlistIndex = playedIndexes.LastOrDefault();
+                    if (skipCommand.TryDequeue(out var skip) && !skip)
                     {
-                        var shuffle = true;
-                        if (shufflePlayedIndexes.Count == playlist.Count)
-                        {
-                            shufflePlayedIndexes.Clear();
-                            if (repeatMode == RepeatMode.None)
-                                shuffle = false;
-                        }
-                        if (shuffle)
-                        {
-                            var possibleIndexes = Enumerable
-                                .Range(0, playlist.Count)
-                                .Except(shufflePlayedIndexes)
-                                .ToImmutableArray();
-                            playlistIndex = possibleIndexes[new Random().Next(0, possibleIndexes.Length)];
-                            shufflePlayedIndexes.Add(playlistIndex);
-                        }
-                        else
-                            playlistIndex = -1;
+                        playedIndexes.RemoveAt(playedIndexes.Count - 1);
+                        playlistIndex = playedIndexes.LastOrDefault();
                     }
-                    else if (playedIndexes.Count > 0)
+                    else if (repeatMode != RepeatMode.Single)
                     {
-                        ++playlistIndex;
-                        if (playlistIndex == playlist.Count && repeatMode == RepeatMode.Playlist)
-                            playlistIndex = 0;
+                        if (isShuffling)
+                        {
+                            var shuffle = true;
+                            if (shufflePlayedIndexes.Count == playlist.Count)
+                            {
+                                shufflePlayedIndexes.Clear();
+                                if (repeatMode == RepeatMode.None)
+                                    shuffle = false;
+                            }
+                            if (shuffle)
+                            {
+                                var possibleIndexes = Enumerable
+                                    .Range(0, playlist.Count)
+                                    .Except(shufflePlayedIndexes)
+                                    .ToImmutableArray();
+                                playlistIndex = possibleIndexes[new Random().Next(0, possibleIndexes.Length)];
+                                shufflePlayedIndexes.Add(playlistIndex);
+                            }
+                            else
+                                playlistIndex = -1;
+                        }
+                        else if (playedIndexes.Count > 0)
+                        {
+                            ++playlistIndex;
+                            if (playlistIndex == playlist.Count && repeatMode == RepeatMode.Playlist)
+                                playlistIndex = 0;
+                        }
+                    }
+                    if (playlistIndex >= 0 && playlistIndex < playlist.Count)
+                    {
+                        fileInfo = playlist[playlistIndex];
+                        if (playedIndexes.Count == 0 || playedIndexes.LastOrDefault() != playlistIndex)
+                            playedIndexes.Add(playlistIndex);
                     }
                 }
-                if (playlistIndex >= 0 && playlistIndex < playlist.Count)
+                try
                 {
-                    fileInfo = playlist[playlistIndex];
-                    if (playedIndexes.Count == 0 || playedIndexes.LastOrDefault() != playlistIndex)
-                        playedIndexes.Add(playlistIndex);
-                }
-            }
-            try
-            {
-                if (fileInfo is not null && audioClient is not null)
-                {
-                    var cancellationToken = playerCancellationTokenSource?.Token ?? throw new OperationCanceledException();
-                    while (true)
+                    if (fileInfo is not null)
                     {
-                        using var ffmpegInstance = seekCommand.TryDequeue(out var seekTo) ? CreateFfmpegInstance(fileInfo.FullName, seekTo) : CreateFfmpegInstance(fileInfo.FullName);
-                        using var ffmpegOutputStream = ffmpegInstance.StandardOutput.BaseStream;
-                        using var discordInputStream = audioClient.CreatePCMStream(AudioApplication.Mixed);
-                        try
+                        var cancellationToken = playerCancellationTokenSource?.Token ?? throw new OperationCanceledException();
+                        var playTime = new Stopwatch();
+                        while (true)
                         {
+                            using var ffmpegInstance = seekCommand.TryDequeue(out var seekTo) ? CreateFfmpegInstance(fileInfo.FullName, isLoudnessNormalized, decibelAdjust, seekTo < TimeSpan.Zero ? playTime.Elapsed : seekTo) : CreateFfmpegInstance(fileInfo.FullName, isLoudnessNormalized, decibelAdjust);
+                            using var ffmpegOutputStream = ffmpegInstance.StandardOutput.BaseStream;
+                            if (!playTime.IsRunning)
+                                playTime.Start();
                             var bytesRead = -1;
                             while (bytesRead != 0 && ffmpegOutputStream.CanRead)
                             {
@@ -195,25 +240,25 @@ public class Audio :
                                 using var bufferStream = new MemoryStream(buffer);
                                 await bufferStream.CopyToAsync(discordInputStream, cancellationToken).ConfigureAwait(false);
                             }
+                            if (seekCommand.TryPeek(out var seekPosition))
+                                continue;
+                            break;
                         }
-                        finally
-                        {
-                            await discordInputStream.FlushAsync(cancellationToken).ConfigureAwait(false);
-                        }
-                        if (seekCommand.TryPeek(out _))
-                            continue;
-                        break;
                     }
+                    else
+                        break;
                 }
-                else
-                    break;
-            }
-            catch (OperationCanceledException)
-            {
-                return;
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
             }
         }
-        await StopAsync().ConfigureAwait(false);
+        finally
+        {
+            await discordInputStream.FlushAsync().ConfigureAwait(false);
+        }
+        await DisconnectAsync().ConfigureAwait(false);
     }
 
     async Task StopAsync()
@@ -234,6 +279,8 @@ public class Audio :
 
     public async Task<bool> ProcessRequestAsync(SocketMessage message, IReadOnlyList<string> commandArgs)
     {
+        IVoiceChannel getVoiceChannel() =>
+            ((IGuildUser)message.Author).VoiceChannel ?? throw new Exception("Command author is not in a voice channel on the server");
         if (commandArgs.Count >= 2 &&
             RequestIdentifiers.Contains(commandArgs[0], StringComparer.OrdinalIgnoreCase) &&
             commandArgs[1] is { } command &&
@@ -272,6 +319,13 @@ public class Audio :
                     }
                     else
                         await message.Channel.SendMessageAsync("I am not currently in a channel.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                    return true;
+                }
+                if (command.Equals("normalize", StringComparison.OrdinalIgnoreCase))
+                {
+                    isLoudnessNormalized = !isLoudnessNormalized;
+                    seekCommand.Enqueue(TimeSpan.FromSeconds(-1));
+                    await message.Channel.SendMessageAsync($"Loudness normalization is now {(isLoudnessNormalized ? "on" : "off")}.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                     return true;
                 }
                 if (command.Equals("pause", StringComparison.OrdinalIgnoreCase))
@@ -330,6 +384,19 @@ public class Audio :
                     return true;
                 }
             }
+            if (commandArgs.Count >= 2)
+            {
+                if (command.Equals("decibeladjust", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (commandArgs.Count == 3 && double.TryParse(commandArgs[2], out var newDecibelAdjust))
+                    {
+                        decibelAdjust = newDecibelAdjust;
+                        seekCommand.Enqueue(TimeSpan.FromSeconds(-1));
+                    }
+                    await message.Channel.SendMessageAsync($"Decibel adjustment is now {decibelAdjust}.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                    return true;
+                }
+            }
             if (commandArgs.Count == 3 && command.Equals("seek", StringComparison.OrdinalIgnoreCase))
             {
                 var isPlaying = false;
@@ -360,87 +427,94 @@ public class Audio :
                     return true;
                 }
             }
-            if (commandArgs.Count >= 3 && command.Equals("play", StringComparison.OrdinalIgnoreCase))
+            if (commandArgs.Count >= 3)
             {
-                IVoiceChannel getVoiceChannel() =>
-                    ((IGuildUser)message.Author).VoiceChannel ?? throw new Exception("Command author is not in a voice channel on the server");
-                if (commandArgs.Count >= 4)
+                if (command.Equals("play", StringComparison.OrdinalIgnoreCase))
                 {
-                    var service = commandArgs[2];
-                    if (!string.IsNullOrWhiteSpace(service))
+                    if (commandArgs.Count >= 4)
                     {
-                        if (service.Equals("local", StringComparison.OrdinalIgnoreCase) &&
-                            commandArgs[3] is { } path &&
-                            new FileInfo(path) is { } fileInfo)
+                        var service = commandArgs[2];
+                        if (!string.IsNullOrWhiteSpace(service))
                         {
-                            if (fileInfo.Exists)
+                            if (service.Equals("local", StringComparison.OrdinalIgnoreCase) &&
+                                commandArgs[3] is { } path &&
+                                new FileInfo(path) is { } fileInfo)
                             {
-                                await AddPlaylistItemAsync(fileInfo, getVoiceChannel).ConfigureAwait(false);
-                                await message.Channel.SendMessageAsync("The local file was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                                return true;
-                            }
-                            throw new FileNotFoundException();
-                        }
-                        if (service.Equals("youtube", StringComparison.OrdinalIgnoreCase) ||
-                            service.Equals("yt", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var playlistIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(3)), @"[0-9a-zA-Z_]{34}");
-                            if (playlistIdMatch.Success)
-                            {
-                                await AddYouTubePlaylistPlaylistItemsAsync(playlistIdMatch.Value, getVoiceChannel).ConfigureAwait(false);
-                                await message.Channel.SendMessageAsync("The videos in the YouTube playlist were added to my playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                                return true;
-                            }
-                            var videoIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(3)), @"[0-9a-zA-Z_]{11}");
-                            if (videoIdMatch.Success)
-                            {
-                                await AddYouTubeVideoPlaylistItemAsync(videoIdMatch.Value, getVoiceChannel).ConfigureAwait(false);
-                                await message.Channel.SendMessageAsync("The YouTube video was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                                return true;
-                            }
-                            await foreach (var result in new YoutubeClient().Search.GetResultsAsync(string.Join(" ", commandArgs.Skip(3))))
-                                if (result is VideoSearchResult video)
+                                if (fileInfo.Exists)
                                 {
-                                    await AddYouTubeVideoPlaylistItemAsync(video.Id.Value, getVoiceChannel).ConfigureAwait(false);
-                                    await message.Channel.SendMessageAsync($"This YouTube video was added to the playlist: https://youtu.be/{video.Id.Value}", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                    await AddPlaylistItemAsync(fileInfo, getVoiceChannel).ConfigureAwait(false);
+                                    await message.Channel.SendMessageAsync("The local file was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                                     return true;
                                 }
-                            throw new Exception("YouTube media not found");
+                                throw new FileNotFoundException();
+                            }
+                            if (service.Equals("youtube", StringComparison.OrdinalIgnoreCase) ||
+                                service.Equals("yt", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var playlistIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(3)), @"[0-9a-zA-Z_]{34}");
+                                if (playlistIdMatch.Success)
+                                {
+                                    await AddYouTubePlaylistPlaylistItemsAsync(playlistIdMatch.Value, getVoiceChannel).ConfigureAwait(false);
+                                    await message.Channel.SendMessageAsync("The videos in the YouTube playlist were added to my playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                    return true;
+                                }
+                                var videoIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(3)), @"[0-9a-zA-Z_]{11}");
+                                if (videoIdMatch.Success)
+                                {
+                                    await AddYouTubeVideoPlaylistItemAsync(videoIdMatch.Value, getVoiceChannel).ConfigureAwait(false);
+                                    await message.Channel.SendMessageAsync("The YouTube video was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                    return true;
+                                }
+                                await foreach (var result in new YoutubeClient().Search.GetResultsAsync(string.Join(" ", commandArgs.Skip(3))))
+                                    if (result is VideoSearchResult video)
+                                    {
+                                        await AddYouTubeVideoPlaylistItemAsync(video.Id.Value, getVoiceChannel).ConfigureAwait(false);
+                                        await message.Channel.SendMessageAsync($"This YouTube video was added to the playlist: https://youtu.be/{video.Id.Value}", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                        return true;
+                                    }
+                                throw new Exception("YouTube media not found");
+                            }
                         }
                     }
-                }
-                {
-                    var playlistIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(2)), @"[0-9a-zA-Z_]{34}");
-                    if (playlistIdMatch.Success)
                     {
-                        await AddYouTubePlaylistPlaylistItemsAsync(playlistIdMatch.Value, getVoiceChannel).ConfigureAwait(false);
-                        await message.Channel.SendMessageAsync("The videos in the YouTube playlist were added to my playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                        return true;
-                    }
-                    var youtubeVideoIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(2)), @"[0-9a-zA-Z_]{11}");
-                    if (youtubeVideoIdMatch.Success)
-                    {
-                        await AddYouTubeVideoPlaylistItemAsync(youtubeVideoIdMatch.Value, getVoiceChannel).ConfigureAwait(false);
-                        await message.Channel.SendMessageAsync("The YouTube video was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                        return true;
-                    }
-                    if (commandArgs[2] is { } path &&
-                        !string.IsNullOrWhiteSpace(path) &&
-                        new FileInfo(path) is { } fileInfo &&
-                        fileInfo.Exists)
-                    {
-                        await AddPlaylistItemAsync(fileInfo, getVoiceChannel).ConfigureAwait(false);
-                        await message.Channel.SendMessageAsync("The local file was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                        return true;
-                    }
-                    await foreach (var result in new YoutubeClient().Search.GetResultsAsync(string.Join(" ", commandArgs.Skip(2))))
-                        if (result is VideoSearchResult video)
+                        var playlistIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(2)), @"[0-9a-zA-Z_]{34}");
+                        if (playlistIdMatch.Success)
                         {
-                            await AddYouTubeVideoPlaylistItemAsync(video.Id.Value, getVoiceChannel).ConfigureAwait(false);
-                            await message.Channel.SendMessageAsync($"This YouTube video was added to the playlist: https://youtu.be/{video.Id.Value}", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                            await AddYouTubePlaylistPlaylistItemsAsync(playlistIdMatch.Value, getVoiceChannel).ConfigureAwait(false);
+                            await message.Channel.SendMessageAsync("The videos in the YouTube playlist were added to my playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                             return true;
                         }
-                    throw new Exception("Media not found");
+                        var youtubeVideoIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(2)), @"[0-9a-zA-Z_]{11}");
+                        if (youtubeVideoIdMatch.Success)
+                        {
+                            await AddYouTubeVideoPlaylistItemAsync(youtubeVideoIdMatch.Value, getVoiceChannel).ConfigureAwait(false);
+                            await message.Channel.SendMessageAsync("The YouTube video was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                            return true;
+                        }
+                        if (commandArgs[2] is { } path &&
+                            !string.IsNullOrWhiteSpace(path) &&
+                            new FileInfo(path) is { } fileInfo &&
+                            fileInfo.Exists)
+                        {
+                            await AddPlaylistItemAsync(fileInfo, getVoiceChannel).ConfigureAwait(false);
+                            await message.Channel.SendMessageAsync("The local file was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                            return true;
+                        }
+                        await foreach (var result in new YoutubeClient().Search.GetResultsAsync(string.Join(" ", commandArgs.Skip(2))))
+                            if (result is VideoSearchResult video)
+                            {
+                                await AddYouTubeVideoPlaylistItemAsync(video.Id.Value, getVoiceChannel).ConfigureAwait(false);
+                                await message.Channel.SendMessageAsync($"This YouTube video was added to the playlist: https://youtu.be/{video.Id.Value}", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                return true;
+                            }
+                        throw new Exception("Media not found");
+                    }
+                }
+                if (command.Equals("say", StringComparison.OrdinalIgnoreCase))
+                {
+                    await AddPlaylistItemAsync(SynthesizeSpeech(string.Join(" ", commandArgs.Skip(2))), getVoiceChannel).ConfigureAwait(false);
+                    await message.Channel.SendMessageAsync("Your statement was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                    return true;
                 }
             }
         }
@@ -449,12 +523,29 @@ public class Audio :
 
     const int bufferSize = 4096;
 
-    static Process CreateFfmpegInstance(string path, TimeSpan? seekTo = null) =>
-        Process.Start(new ProcessStartInfo
+    static Process CreateFfmpegInstance(string path, bool isLoudnessNormalized, double decibelAdjust, TimeSpan? seekTo = null)
+    {
+        var arguments = $"-hide_banner -loglevel panic {(seekTo is { } nonNullSeekTo ? $"-ss {nonNullSeekTo.Days * 24 + nonNullSeekTo.Hours:00}:{nonNullSeekTo.Minutes:00}:{nonNullSeekTo.Seconds:00} " : "")}-i \"{path}\" {(isLoudnessNormalized ? "-filter:a loudnorm " : string.Empty)}{(decibelAdjust != 0D ? $"-filter:a \"volume={decibelAdjust}dB\" " : string.Empty)}-ac 2 -f s16le -ar 48000 pipe:1";
+        if (Debugger.IsAttached)
+            Console.WriteLine($"Executing: ffmpeg {arguments}");
+        return Process.Start(new ProcessStartInfo
         {
             FileName = "ffmpeg",
-            Arguments = $"-hide_banner -loglevel panic {(seekTo is { } nonNullSeekTo ? $"-ss {nonNullSeekTo.Days * 24 + nonNullSeekTo.Hours:00}:{nonNullSeekTo.Minutes:00}:{nonNullSeekTo.Seconds:00} " : "")}-i \"{path}\" -ac 2 -f s16le -ar 48000 pipe:1",
+            Arguments = arguments,
             UseShellExecute = false,
             RedirectStandardOutput = true,
         });
+    }
+
+    static FileInfo SynthesizeSpeech(string text)
+    {
+        using var synthesizer = new SpeechSynthesizer();
+        if (Settings.Instance.AudioVoiceName is { } voiceName)
+            synthesizer.SelectVoice(voiceName);
+        var fileInfo = new FileInfo(Path.GetTempFileName());
+        fileInfo.Delete();
+        synthesizer.SetOutputToWaveFile(fileInfo.FullName);
+        synthesizer.Speak(text);
+        return fileInfo;
+    }
 }
