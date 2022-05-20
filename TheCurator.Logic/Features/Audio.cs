@@ -515,7 +515,7 @@ public class Audio :
                             if (service.Equals("youtube", StringComparison.OrdinalIgnoreCase) ||
                                 service.Equals("yt", StringComparison.OrdinalIgnoreCase))
                             {
-                                var playlistIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(3)), @"[0-9a-zA-Z_]{34}");
+                                var playlistIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(3)), @"[0-9a-zA-Z_\-]{34}");
                                 if (playlistIdMatch.Success)
                                 {
                                     var pleaseWaitMessage = await message.Channel.SendMessageAsync("Please wait as your YouTube playlist is downloaded...", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
@@ -523,7 +523,7 @@ public class Audio :
                                     await pleaseWaitMessage.ModifyAsync(msg => msg.Content = "The videos in the YouTube playlist were added to my playlist.").ConfigureAwait(false);
                                     return true;
                                 }
-                                var videoIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(3)), @"[0-9a-zA-Z_]{11}");
+                                var videoIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(3)), @"[0-9a-zA-Z_\-]{11}");
                                 if (videoIdMatch.Success)
                                 {
                                     var pleaseWaitMessage = await message.Channel.SendMessageAsync("Please wait as your YouTube video is downloaded...", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
@@ -544,7 +544,7 @@ public class Audio :
                         }
                     }
                     {
-                        var youTubePlaylistId = Regex.Match(string.Join(" ", commandArgs.Skip(2)), @"[0-9a-zA-Z_]{34}");
+                        var youTubePlaylistId = Regex.Match(string.Join(" ", commandArgs.Skip(2)), @"[0-9a-zA-Z_\-]{34}");
                         if (youTubePlaylistId.Success)
                         {
                             var pleaseWaitMessage = await message.Channel.SendMessageAsync("Please wait as your YouTube playlist is downloaded...", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
@@ -552,7 +552,7 @@ public class Audio :
                             await pleaseWaitMessage.ModifyAsync(msg => msg.Content = "The videos in the YouTube playlist were added to my playlist.").ConfigureAwait(false);
                             return true;
                         }
-                        var youtubeVideoIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(2)), @"[0-9a-zA-Z_]{11}");
+                        var youtubeVideoIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(2)), @"[0-9a-zA-Z_\-]{11}");
                         if (youtubeVideoIdMatch.Success)
                         {
                             var pleaseWaitMessage = await message.Channel.SendMessageAsync("Please wait as your YouTube video is downloaded...", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
