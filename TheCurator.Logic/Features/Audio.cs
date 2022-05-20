@@ -21,6 +21,7 @@ public class Audio :
     IAudioClient? audioClient;
     IVoiceChannel? connectedVoiceChannel;
     double decibelAdjust;
+    bool isDisconnecting;
     bool isLoudnessNormalized;
     bool isShuffling;
     CancellationTokenSource? playerCancellationTokenSource;
@@ -102,7 +103,9 @@ public class Audio :
 
     async Task DisconnectAsync()
     {
-        await StopAsync().ConfigureAwait(false);
+        isDisconnecting = true;
+        if (!await StopAsync().ConfigureAwait(false) && connectedVoiceChannel is not null)
+            await PlayAsync(connectedVoiceChannel).ConfigureAwait(false);
         if (audioClient is not null)
         {
             await audioClient.StopAsync().ConfigureAwait(false);
@@ -110,6 +113,7 @@ public class Audio :
             audioClient = null;
             connectedVoiceChannel = null;
         }
+        isDisconnecting = false;
     }
 
     protected override bool Dispose(bool disposing)
@@ -267,15 +271,18 @@ public class Audio :
         {
             await discordInputStream.FlushAsync().ConfigureAwait(false);
         }
-        await DisconnectAsync().ConfigureAwait(false);
+        if (!isDisconnecting)
+            await DisconnectAsync().ConfigureAwait(false);
     }
 
-    async Task StopAsync()
+    async Task<bool> StopAsync()
     {
+        var interruptedSomething = false;
         using (await playerAccess.LockAsync().ConfigureAwait(false))
         {
             if (playerCancellationTokenSource is not null)
             {
+                interruptedSomething = true;
                 playerCancellationTokenSource.Cancel();
                 playerCancellationTokenSource.Dispose();
                 playerCancellationTokenSource = null;
@@ -285,6 +292,7 @@ public class Audio :
             shufflePlayedIndexes.Clear();
         }
         streamingThrottle.Set();
+        return interruptedSomething;
     }
 
     public async Task<bool> ProcessRequestAsync(SocketMessage message, IReadOnlyList<string> commandArgs)
