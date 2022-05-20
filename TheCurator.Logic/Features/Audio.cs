@@ -126,9 +126,12 @@ public class Audio :
         if (audioClient is not null)
         {
             await Task.WhenAll(connectedVoiceChannelUse.WaitAsync(), Task.Delay(TimeSpan.FromSeconds(0.25))).ConfigureAwait(false);
-            await audioClient.StopAsync().ConfigureAwait(false);
-            audioClient.Dispose();
-            audioClient = null;
+            if (audioClient is not null)
+            {
+                await audioClient.StopAsync().ConfigureAwait(false);
+                audioClient.Dispose();
+                audioClient = null;
+            }
             connectedVoiceChannel = null;
         }
     }
@@ -202,7 +205,7 @@ public class Audio :
         {
             try
             {
-                while (true)
+                while (playerCancellationTokenSource is not null)
                 {
                     seekCommand.Clear();
                     FileInfo? fileInfo = null;
@@ -300,11 +303,11 @@ public class Audio :
     {
         using (await playerAccess.LockAsync().ConfigureAwait(false))
         {
-            if (playerCancellationTokenSource is not null)
+            if (playerCancellationTokenSource is { } cancellationTokenSource)
             {
-                playerCancellationTokenSource.Cancel();
-                playerCancellationTokenSource.Dispose();
                 playerCancellationTokenSource = null;
+                cancellationTokenSource.Cancel();
+                cancellationTokenSource.Dispose();
             }
             playlist.Clear();
             playedIndexes.Clear();
