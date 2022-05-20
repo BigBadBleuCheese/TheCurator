@@ -103,17 +103,25 @@ public class Audio :
 
     async Task DisconnectAsync()
     {
-        isDisconnecting = true;
-        if (!await StopAsync().ConfigureAwait(false) && connectedVoiceChannel is not null)
-            await PlayAsync(connectedVoiceChannel).ConfigureAwait(false);
-        if (audioClient is not null)
+        if (!isDisconnecting)
         {
-            await audioClient.StopAsync().ConfigureAwait(false);
-            audioClient.Dispose();
-            audioClient = null;
-            connectedVoiceChannel = null;
+            isDisconnecting = true;
+            if (await StopAsync().ConfigureAwait(false) && connectedVoiceChannel is not null)
+                await PlayAsync(connectedVoiceChannel).ConfigureAwait(false);
+            else
+                await DisconnectAsync().ConfigureAwait(false);
         }
-        isDisconnecting = false;
+        else
+        {
+            isDisconnecting = false;
+            if (audioClient is not null)
+            {
+                await audioClient.StopAsync().ConfigureAwait(false);
+                audioClient.Dispose();
+                audioClient = null;
+                connectedVoiceChannel = null;
+            }
+        }
     }
 
     protected override bool Dispose(bool disposing)
@@ -140,13 +148,13 @@ public class Audio :
         }
     }
 
-    async Task PlayAudioAsync(AudioOutStream discordInputStream, FileInfo fileInfo, bool isSkippable)
+    async Task PlayAudioAsync(AudioOutStream discordInputStream, FileInfo fileInfo, bool isSkippable, bool isPsa = false)
     {
         var cancellationToken = playerCancellationTokenSource?.Token ?? CancellationToken.None;
         var playTime = new Stopwatch();
         while (true)
         {
-            using var ffmpegInstance = seekCommand.TryDequeue(out var seekTo) ? CreateFfmpegInstance(fileInfo.FullName, isLoudnessNormalized, decibelAdjust, seekTo < TimeSpan.Zero ? playTime.Elapsed : seekTo) : CreateFfmpegInstance(fileInfo.FullName, isLoudnessNormalized, decibelAdjust);
+            using var ffmpegInstance = seekCommand.TryDequeue(out var seekTo) ? CreateFfmpegInstance(fileInfo.FullName, isPsa, isLoudnessNormalized, decibelAdjust, seekTo < TimeSpan.Zero ? playTime.Elapsed : seekTo) : CreateFfmpegInstance(fileInfo.FullName, isPsa, isLoudnessNormalized, decibelAdjust);
             using var ffmpegOutputStream = ffmpegInstance.StandardOutput.BaseStream;
             if (!playTime.IsRunning)
                 playTime.Start();
@@ -250,7 +258,7 @@ public class Audio :
                         });
                         await PlayAudioAsync(discordInputStream, fileInfo, true).ConfigureAwait(false);
                         if (await getPSAFileInfoTask.ConfigureAwait(false) is { } psaFileInfo)
-                            await PlayAudioAsync(discordInputStream, psaFileInfo, false).ConfigureAwait(false);
+                            await PlayAudioAsync(discordInputStream, psaFileInfo, false, true).ConfigureAwait(false);
                     }
                     else
                         break;
@@ -271,8 +279,7 @@ public class Audio :
         {
             await discordInputStream.FlushAsync().ConfigureAwait(false);
         }
-        if (!isDisconnecting)
-            await DisconnectAsync().ConfigureAwait(false);
+        await DisconnectAsync().ConfigureAwait(false);
     }
 
     async Task<bool> StopAsync()
@@ -577,9 +584,9 @@ public class Audio :
 
     const int bufferSize = 4096;
 
-    static Process CreateFfmpegInstance(string path, bool isLoudnessNormalized, double decibelAdjust, TimeSpan? seekTo = null)
+    static Process CreateFfmpegInstance(string path, bool isPsa, bool isLoudnessNormalized, double decibelAdjust, TimeSpan? seekTo = null)
     {
-        var arguments = $"-hide_banner -loglevel panic {(seekTo is { } nonNullSeekTo ? $"-ss {nonNullSeekTo.Days * 24 + nonNullSeekTo.Hours:00}:{nonNullSeekTo.Minutes:00}:{nonNullSeekTo.Seconds:00} " : "")}-i \"{path}\" {(isLoudnessNormalized ? "-filter:a loudnorm " : string.Empty)}{(decibelAdjust != 0D ? $"-filter:a \"volume={decibelAdjust}dB\" " : string.Empty)}-ac 2 -f s16le -ar 48000 pipe:1";
+        var arguments = $"-hide_banner -loglevel panic {(seekTo is { } nonNullSeekTo ? $"-ss {nonNullSeekTo.Days * 24 + nonNullSeekTo.Hours:00}:{nonNullSeekTo.Minutes:00}:{nonNullSeekTo.Seconds:00} " : "")}-i \"{path}\" {(isLoudnessNormalized ? "-filter:a loudnorm " : string.Empty)}{(!isPsa && decibelAdjust != 0D ? $"-filter:a \"volume={decibelAdjust}dB\" " : string.Empty)}-ac 2 -f s16le -ar 48000 pipe:1";
         if (Debugger.IsAttached)
             Console.WriteLine($"Executing: ffmpeg {arguments}");
         return Process.Start(new ProcessStartInfo
