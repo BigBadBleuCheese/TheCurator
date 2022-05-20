@@ -9,6 +9,7 @@ public class Audio :
 {
     public Audio()
     {
+        connectedVoiceChannelUse = new(true);
         decibelAdjust = -12;
         isLoudnessNormalized = true;
         playedIndexes = new();
@@ -23,6 +24,7 @@ public class Audio :
 
     IAudioClient? audioClient;
     IVoiceChannel? connectedVoiceChannel;
+    readonly AsyncManualResetEvent connectedVoiceChannelUse;
     double decibelAdjust;
     bool isLoudnessNormalized;
     bool isShuffling;
@@ -123,6 +125,7 @@ public class Audio :
         await StopAsync().ConfigureAwait(false);
         if (audioClient is not null)
         {
+            await Task.WhenAll(connectedVoiceChannelUse.WaitAsync(), Task.Delay(TimeSpan.FromSeconds(0.25))).ConfigureAwait(false);
             await audioClient.StopAsync().ConfigureAwait(false);
             audioClient.Dispose();
             audioClient = null;
@@ -185,6 +188,7 @@ public class Audio :
     {
         if (audioClient is null)
             return;
+        connectedVoiceChannelUse.Reset();
         using var discordInputStream = audioClient.CreatePCMStream(AudioApplication.Mixed);
         var appDirectoryInfo = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
         var resourcesDirectoryInfo = new DirectoryInfo(Path.Combine(appDirectoryInfo.FullName, "Resources"));
@@ -287,6 +291,7 @@ public class Audio :
         finally
         {
             await discordInputStream.FlushAsync().ConfigureAwait(false);
+            connectedVoiceChannelUse.Set();
         }
         await DisconnectAsync().ConfigureAwait(false);
     }
