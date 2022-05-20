@@ -68,11 +68,14 @@ public class Audio :
         await PlayAsync(voiceChannel).ConfigureAwait(false);
     }
 
-    async Task AddYouTubePlaylistPlaylistItemsAsync(string youtubeId, IVoiceChannel voiceChannel)
+    void AddYouTubePlaylistPlaylistItems(string youtubeId, IVoiceChannel voiceChannel)
     {
-        var youtube = new YoutubeClient();
-        await foreach (var video in youtube.Playlists.GetVideosAsync(youtubeId))
-            await AddYouTubeVideoPlaylistItemAsync(video.Id.Value, voiceChannel).ConfigureAwait(false);
+        _ = Task.Run(async () =>
+        {
+            var youtube = new YoutubeClient();
+            await foreach (var video in youtube.Playlists.GetVideosAsync(youtubeId))
+                await AddYouTubeVideoPlaylistItemAsync(video.Id.Value, voiceChannel).ConfigureAwait(false);
+        });
     }
 
     async Task AddYouTubeVideoPlaylistItemAsync(string youtubeId, IVoiceChannel voiceChannel)
@@ -508,7 +511,7 @@ public class Audio :
                                 if (playlistIdMatch.Success)
                                 {
                                     var pleaseWaitMessage = await message.Channel.SendMessageAsync("Please wait as your YouTube playlist is downloaded...", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                                    await AddYouTubePlaylistPlaylistItemsAsync(playlistIdMatch.Value, voiceChannel).ConfigureAwait(false);
+                                    AddYouTubePlaylistPlaylistItems(playlistIdMatch.Value, voiceChannel);
                                     await pleaseWaitMessage.ModifyAsync(msg => msg.Content = "The videos in the YouTube playlist were added to my playlist.").ConfigureAwait(false);
                                     return true;
                                 }
@@ -537,7 +540,7 @@ public class Audio :
                         if (youTubePlaylistId.Success)
                         {
                             var pleaseWaitMessage = await message.Channel.SendMessageAsync("Please wait as your YouTube playlist is downloaded...", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                            await AddYouTubePlaylistPlaylistItemsAsync(youTubePlaylistId.Value, voiceChannel).ConfigureAwait(false);
+                            AddYouTubePlaylistPlaylistItems(youTubePlaylistId.Value, voiceChannel);
                             await pleaseWaitMessage.ModifyAsync(msg => msg.Content = "The videos in the YouTube playlist were added to my playlist.").ConfigureAwait(false);
                             return true;
                         }
