@@ -21,7 +21,6 @@ public class Audio :
     IAudioClient? audioClient;
     IVoiceChannel? connectedVoiceChannel;
     double decibelAdjust;
-    bool isDisconnecting;
     bool isLoudnessNormalized;
     bool isShuffling;
     CancellationTokenSource? playerCancellationTokenSource;
@@ -106,24 +105,13 @@ public class Audio :
 
     async Task DisconnectAsync()
     {
-        if (!isDisconnecting)
+        await StopAsync().ConfigureAwait(false);
+        if (audioClient is not null)
         {
-            isDisconnecting = true;
-            if (await StopAsync().ConfigureAwait(false) && connectedVoiceChannel is not null)
-                await PlayAsync(connectedVoiceChannel).ConfigureAwait(false);
-            else
-                await DisconnectAsync().ConfigureAwait(false);
-        }
-        else
-        {
-            isDisconnecting = false;
-            if (audioClient is not null)
-            {
-                await audioClient.StopAsync().ConfigureAwait(false);
-                audioClient.Dispose();
-                audioClient = null;
-                connectedVoiceChannel = null;
-            }
+            await audioClient.StopAsync().ConfigureAwait(false);
+            audioClient.Dispose();
+            audioClient = null;
+            connectedVoiceChannel = null;
         }
     }
 
@@ -193,59 +181,59 @@ public class Audio :
         }
         try
         {
-            while (true)
+            try
             {
-                seekCommand.Clear();
-                FileInfo? fileInfo = null;
-                var playedIndexesCount = 0;
-                using (await playerAccess.LockAsync().ConfigureAwait(false))
+                while (true)
                 {
-                    var playlistIndex = playedIndexes.LastOrDefault();
-                    if (skipCommand.TryDequeue(out var skip) && !skip)
+                    seekCommand.Clear();
+                    FileInfo? fileInfo = null;
+                    var playedIndexesCount = 0;
+                    using (await playerAccess.LockAsync().ConfigureAwait(false))
                     {
-                        playedIndexes.RemoveAt(playedIndexes.Count - 1);
-                        playlistIndex = playedIndexes.LastOrDefault();
-                    }
-                    else if (repeatMode != RepeatMode.Single)
-                    {
-                        if (isShuffling)
+                        var playlistIndex = playedIndexes.LastOrDefault();
+                        if (skipCommand.TryDequeue(out var skip) && !skip)
                         {
-                            var shuffle = true;
-                            if (shufflePlayedIndexes.Count == playlist.Count)
-                            {
-                                shufflePlayedIndexes.Clear();
-                                if (repeatMode == RepeatMode.None)
-                                    shuffle = false;
-                            }
-                            if (shuffle)
-                            {
-                                var possibleIndexes = Enumerable
-                                    .Range(0, playlist.Count)
-                                    .Except(shufflePlayedIndexes)
-                                    .ToImmutableArray();
-                                playlistIndex = possibleIndexes[new Random().Next(0, possibleIndexes.Length)];
-                                shufflePlayedIndexes.Add(playlistIndex);
-                            }
-                            else
-                                playlistIndex = -1;
+                            playedIndexes.RemoveAt(playedIndexes.Count - 1);
+                            playlistIndex = playedIndexes.LastOrDefault();
                         }
-                        else if (playedIndexes.Count > 0)
+                        else if (repeatMode != RepeatMode.Single)
                         {
-                            ++playlistIndex;
-                            if (playlistIndex == playlist.Count && repeatMode == RepeatMode.Playlist)
-                                playlistIndex = 0;
+                            if (isShuffling)
+                            {
+                                var shuffle = true;
+                                if (shufflePlayedIndexes.Count == playlist.Count)
+                                {
+                                    shufflePlayedIndexes.Clear();
+                                    if (repeatMode == RepeatMode.None)
+                                        shuffle = false;
+                                }
+                                if (shuffle)
+                                {
+                                    var possibleIndexes = Enumerable
+                                        .Range(0, playlist.Count)
+                                        .Except(shufflePlayedIndexes)
+                                        .ToImmutableArray();
+                                    playlistIndex = possibleIndexes[new Random().Next(0, possibleIndexes.Length)];
+                                    shufflePlayedIndexes.Add(playlistIndex);
+                                }
+                                else
+                                    playlistIndex = -1;
+                            }
+                            else if (playedIndexes.Count > 0)
+                            {
+                                ++playlistIndex;
+                                if (playlistIndex == playlist.Count && repeatMode == RepeatMode.Playlist)
+                                    playlistIndex = 0;
+                            }
                         }
+                        if (playlistIndex >= 0 && playlistIndex < playlist.Count)
+                        {
+                            fileInfo = playlist[playlistIndex];
+                            if (playedIndexes.Count == 0 || playedIndexes.LastOrDefault() != playlistIndex)
+                                playedIndexes.Add(playlistIndex);
+                        }
+                        playedIndexesCount = playedIndexes.Count;
                     }
-                    if (playlistIndex >= 0 && playlistIndex < playlist.Count)
-                    {
-                        fileInfo = playlist[playlistIndex];
-                        if (playedIndexes.Count == 0 || playedIndexes.LastOrDefault() != playlistIndex)
-                            playedIndexes.Add(playlistIndex);
-                    }
-                    playedIndexesCount = playedIndexes.Count;
-                }
-                try
-                {
                     if (fileInfo is not null)
                     {
                         var getPSAFileInfoTask = Task.Run(() =>
@@ -266,16 +254,19 @@ public class Audio :
                     else
                         break;
                 }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
             }
-            if (resourcesDirectoryInfo.Exists)
+            catch (OperationCanceledException)
             {
-                var exitSoundFile = new FileInfo(Path.Combine(resourcesDirectoryInfo.FullName, "546641.mp3"));
-                if (exitSoundFile.Exists)
-                    await PlayAudioAsync(discordInputStream, exitSoundFile, false).ConfigureAwait(false);
+                // alrighty then
+            }
+            finally
+            {
+                if (resourcesDirectoryInfo.Exists)
+                {
+                    var exitSoundFile = new FileInfo(Path.Combine(resourcesDirectoryInfo.FullName, "546641.mp3"));
+                    if (exitSoundFile.Exists)
+                        await PlayAudioAsync(discordInputStream, exitSoundFile, false).ConfigureAwait(false);
+                }
             }
         }
         finally
@@ -285,14 +276,12 @@ public class Audio :
         await DisconnectAsync().ConfigureAwait(false);
     }
 
-    async Task<bool> StopAsync()
+    async Task StopAsync()
     {
-        var interruptedSomething = false;
         using (await playerAccess.LockAsync().ConfigureAwait(false))
         {
             if (playerCancellationTokenSource is not null)
             {
-                interruptedSomething = true;
                 playerCancellationTokenSource.Cancel();
                 playerCancellationTokenSource.Dispose();
                 playerCancellationTokenSource = null;
@@ -302,7 +291,6 @@ public class Audio :
             shufflePlayedIndexes.Clear();
         }
         streamingThrottle.Set();
-        return interruptedSomething;
     }
 
     public async Task<bool> ProcessRequestAsync(SocketMessage message, IReadOnlyList<string> commandArgs)
