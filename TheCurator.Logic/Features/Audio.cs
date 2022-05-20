@@ -518,11 +518,11 @@ public class Audio :
                             if (service.Equals("youtube", StringComparison.OrdinalIgnoreCase) ||
                                 service.Equals("yt", StringComparison.OrdinalIgnoreCase))
                             {
-                                var playlistIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(3)), @"[0-9a-zA-Z_\-]{34}");
+                                var playlistIdMatch = youtubePlaylistPattern.Match(string.Join(" ", commandArgs.Skip(3)));
                                 if (playlistIdMatch.Success)
                                 {
                                     var pleaseWaitMessage = await message.Channel.SendMessageAsync("Please wait as your YouTube playlist is downloaded...", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                                    AddYouTubePlaylistPlaylistItems(playlistIdMatch.Value, voiceChannel, message);
+                                    AddYouTubePlaylistPlaylistItems(playlistIdMatch.Groups["playlistId"].Value, voiceChannel, message);
                                     await pleaseWaitMessage.ModifyAsync(msg => msg.Content = "The videos in the YouTube playlist were added to my playlist.").ConfigureAwait(false);
                                     return true;
                                 }
@@ -547,11 +547,11 @@ public class Audio :
                         }
                     }
                     {
-                        var youTubePlaylistId = Regex.Match(string.Join(" ", commandArgs.Skip(2)), @"[0-9a-zA-Z_\-]{34}");
+                        var youTubePlaylistId = youtubePlaylistPattern.Match(string.Join(" ", commandArgs.Skip(2)));
                         if (youTubePlaylistId.Success)
                         {
                             var pleaseWaitMessage = await message.Channel.SendMessageAsync("Please wait as your YouTube playlist is downloaded...", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                            AddYouTubePlaylistPlaylistItems(youTubePlaylistId.Value, voiceChannel, message);
+                            AddYouTubePlaylistPlaylistItems(youTubePlaylistId.Groups["playlistId"].Value, voiceChannel, message);
                             await pleaseWaitMessage.ModifyAsync(msg => msg.Content = "The videos in the YouTube playlist were added to my playlist.").ConfigureAwait(false);
                             return true;
                         }
@@ -597,6 +597,7 @@ public class Audio :
     }
 
     const int bufferSize = 4096;
+    static Regex youtubePlaylistPattern = new (@"\?list\=(?<playlistId>[0-9a-zA-Z_\-]+)");
 
     static Process CreateFfmpegInstance(string path, bool isPsa, bool isLoudnessNormalized, double decibelAdjust, TimeSpan? seekTo = null)
     {
