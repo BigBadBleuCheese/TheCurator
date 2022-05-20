@@ -48,6 +48,7 @@ public class Audio :
             ("play [service?] [content]", "Adds something to the playlist from a service"),
             ("repeat", "Change the repeat mode"),
             ("resume", "Resumes playback if it is paused"),
+            ("say [text], speak [text]", "Convert text to speech and play it"),
             ("seek [position]", "Seek to a position in time in the current track"),
             ("shuffle", "Toggle shuffling"),
             ("skip, next", "Move to the next track"),
@@ -120,14 +121,18 @@ public class Audio :
 
     async Task PlayAsync(IVoiceChannel voiceChannel)
     {
+        var announceEntrance = false;
         if (audioClient is null)
+        {
             await ConnectAsync(voiceChannel).ConfigureAwait(false);
+            announceEntrance = true;
+        }
         using (await playerAccess.LockAsync().ConfigureAwait(false))
         {
             if (playerCancellationTokenSource is not null)
                 return;
             playerCancellationTokenSource = new();
-            _ = Task.Run(PlayerLogicAsync);
+            _ = Task.Run(() => PlayerLogicAsync(announceEntrance));
         }
     }
 
@@ -158,14 +163,14 @@ public class Audio :
         }
     }
 
-    async Task PlayerLogicAsync()
+    async Task PlayerLogicAsync(bool announceEntrance)
     {
         if (audioClient is null)
             return;
         using var discordInputStream = audioClient.CreatePCMStream(AudioApplication.Mixed);
         var appDirectoryInfo = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
         var resourcesDirectoryInfo = new DirectoryInfo(Path.Combine(appDirectoryInfo.FullName, "Resources"));
-        if (resourcesDirectoryInfo.Exists)
+        if (announceEntrance && resourcesDirectoryInfo.Exists)
         {
             var entranceSoundFileInfo = new FileInfo(Path.Combine(resourcesDirectoryInfo.FullName, "546638.mp3"));
             if (entranceSoundFileInfo.Exists)
@@ -548,7 +553,7 @@ public class Audio :
                         throw new Exception("Media not found");
                     }
                 }
-                if (command.Equals("say", StringComparison.OrdinalIgnoreCase))
+                if (command.Equals("say", StringComparison.OrdinalIgnoreCase) || command.Equals(value: "speak", StringComparison.OrdinalIgnoreCase))
                 {
                     requireTheyreInVoice();
                     requireImNotInVoiceOrInSameVoiceChannel();
