@@ -133,7 +133,7 @@ public class Bot :
                     }
                     catch (Exception ex)
                     {
-                        await message.Channel.SendMessageAsync($"Your request cannot be processed. `{ex.Message}`", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                        await message.Channel.SendMessageAsync($"Your request cannot be processed. `{ex.Message}`\r\n\r\n```\r\n{ex.GetFullDetails()}\r\n```", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                     }
                 }
             }

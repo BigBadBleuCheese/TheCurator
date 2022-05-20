@@ -28,6 +28,7 @@ class Service : ServiceBase
 
     protected override void OnStart(string[] args)
     {
+        TaskScheduler.UnobservedTaskException += TaskSchedulerUnobservedTaskException;
         var bot = container.Resolve<IBot>();
         var discordToken = string.Empty;
         var discordTokenFilePath = Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetEntryAssembly().Location), "discordToken.txt");
@@ -46,5 +47,11 @@ class Service : ServiceBase
         var bot = container.Resolve<IBot>();
         container.DisposeAsync().AsTask().Wait();
         bot.Client.Log -= ClientLogAsync;
+    }
+
+    void TaskSchedulerUnobservedTaskException(object sender, UnobservedTaskExceptionEventArgs e)
+    {
+        EventLog.WriteEntry($"Unobserved TPL exception.\r\n\r\n{e.Exception.GetFullDetails()}", EventLogEntryType.Warning);
+        e.SetObserved();
     }
 }

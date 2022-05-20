@@ -19,8 +19,8 @@ public class Audio :
     }
 
     IAudioClient? audioClient;
+    IVoiceChannel? connectedVoiceChannel;
     double decibelAdjust;
-    int disconnectStage;
     bool isLoudnessNormalized;
     bool isShuffling;
     CancellationTokenSource? playerCancellationTokenSource;
@@ -59,36 +59,21 @@ public class Audio :
 
     public IReadOnlyList<string> RequestIdentifiers { get; }
 
-    async Task AddPlaylistItemAsync(FileInfo fileInfo, Func<IVoiceChannel> getVoiceChannel)
+    async Task AddPlaylistItemAsync(FileInfo fileInfo, IVoiceChannel voiceChannel)
     {
-        if (disconnectStage == 2)
-            return;
         using (await playerAccess.LockAsync().ConfigureAwait(false))
-        {
-            if (disconnectStage == 0 && playlist.Count == 0)
-            {
-                var appDirectoryInfo = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
-                var resourcesDirectoryInfo = new DirectoryInfo(Path.Combine(appDirectoryInfo.FullName, "Resources"));
-                if (resourcesDirectoryInfo.Exists)
-                {
-                    var entranceSoundFileInfo = new FileInfo(Path.Combine(resourcesDirectoryInfo.FullName, "546638.mp3"));
-                    if (entranceSoundFileInfo.Exists)
-                        playlist.Add(entranceSoundFileInfo);
-                }
-            }
             playlist.Add(fileInfo);
-        }
-        await PlayAsync(getVoiceChannel).ConfigureAwait(false);
+        await PlayAsync(voiceChannel).ConfigureAwait(false);
     }
 
-    async Task AddYouTubePlaylistPlaylistItemsAsync(string youtubeId, Func<IVoiceChannel> getVoiceChannel)
+    async Task AddYouTubePlaylistPlaylistItemsAsync(string youtubeId, IVoiceChannel voiceChannel)
     {
         var youtube = new YoutubeClient();
         await foreach (var video in youtube.Playlists.GetVideosAsync(youtubeId))
-            await AddYouTubeVideoPlaylistItemAsync(video.Id.Value, getVoiceChannel).ConfigureAwait(false);
+            await AddYouTubeVideoPlaylistItemAsync(video.Id.Value, voiceChannel).ConfigureAwait(false);
     }
 
-    async Task AddYouTubeVideoPlaylistItemAsync(string youtubeId, Func<IVoiceChannel> getVoiceChannel)
+    async Task AddYouTubeVideoPlaylistItemAsync(string youtubeId, IVoiceChannel voiceChannel)
     {
         var appDirectoryInfo = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
         var cacheDirectoryInfo = new DirectoryInfo(Path.Combine(appDirectoryInfo.FullName, "Cache"));
@@ -103,7 +88,7 @@ public class Audio :
             var youtube = new YoutubeClient();
             await youtube.Videos.Streams.DownloadAsync((await youtube.Videos.Streams.GetManifestAsync(youtubeId).ConfigureAwait(false)).GetAudioOnlyStreams().GetWithHighestBitrate(), cacheFileInfo.FullName).ConfigureAwait(false);
         }
-        await AddPlaylistItemAsync(cacheFileInfo, getVoiceChannel).ConfigureAwait(false);
+        await AddPlaylistItemAsync(cacheFileInfo, voiceChannel).ConfigureAwait(false);
     }
 
     async Task ConnectAsync(IVoiceChannel voiceChannel)
@@ -111,33 +96,18 @@ public class Audio :
         if (audioClient is not null)
             throw new Exception("Already connected");
         audioClient = await voiceChannel.ConnectAsync(true).ConfigureAwait(false);
+        connectedVoiceChannel = voiceChannel;
     }
 
     async Task DisconnectAsync()
     {
         await StopAsync().ConfigureAwait(false);
-        if (disconnectStage == 0)
-        {
-            var appDirectoryInfo = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
-            var resourcesDirectoryInfo = new DirectoryInfo(Path.Combine(appDirectoryInfo.FullName, "Resources"));
-            if (resourcesDirectoryInfo.Exists)
-            {
-                var exitSoundFile = new FileInfo(Path.Combine(resourcesDirectoryInfo.FullName, "546641.mp3"));
-                if (exitSoundFile.Exists)
-                {
-                    disconnectStage = 1;
-                    await AddPlaylistItemAsync(exitSoundFile, () => throw new InvalidOperationException()).ConfigureAwait(false);
-                }
-            }
-            disconnectStage = 2;
-            return;
-        }
-        disconnectStage = 0;
         if (audioClient is not null)
         {
             await audioClient.StopAsync().ConfigureAwait(false);
             audioClient.Dispose();
             audioClient = null;
+            connectedVoiceChannel = null;
         }
     }
 
@@ -148,10 +118,10 @@ public class Audio :
         return true;
     }
 
-    async Task PlayAsync(Func<IVoiceChannel> getVoiceChannel)
+    async Task PlayAsync(IVoiceChannel voiceChannel)
     {
         if (audioClient is null)
-            await ConnectAsync(getVoiceChannel()).ConfigureAwait(false);
+            await ConnectAsync(voiceChannel).ConfigureAwait(false);
         using (await playerAccess.LockAsync().ConfigureAwait(false))
         {
             if (playerCancellationTokenSource is not null)
@@ -161,17 +131,53 @@ public class Audio :
         }
     }
 
+    async Task PlayAudioAsync(AudioOutStream discordInputStream, FileInfo fileInfo, bool isSkippable)
+    {
+        var cancellationToken = playerCancellationTokenSource?.Token ?? CancellationToken.None;
+        var playTime = new Stopwatch();
+        while (true)
+        {
+            using var ffmpegInstance = seekCommand.TryDequeue(out var seekTo) ? CreateFfmpegInstance(fileInfo.FullName, isLoudnessNormalized, decibelAdjust, seekTo < TimeSpan.Zero ? playTime.Elapsed : seekTo) : CreateFfmpegInstance(fileInfo.FullName, isLoudnessNormalized, decibelAdjust);
+            using var ffmpegOutputStream = ffmpegInstance.StandardOutput.BaseStream;
+            if (!playTime.IsRunning)
+                playTime.Start();
+            var bytesRead = -1;
+            while (bytesRead != 0 && ffmpegOutputStream.CanRead)
+            {
+                await streamingThrottle.WaitAsync().ConfigureAwait(false);
+                if (seekCommand.TryPeek(out _) || (isSkippable && skipCommand.TryPeek(out _)))
+                    break;
+                var buffer = new byte[bufferSize];
+                bytesRead = await ffmpegOutputStream.ReadAsync(buffer, 0, bufferSize).ConfigureAwait(false);
+                using var bufferStream = new MemoryStream(buffer);
+                await bufferStream.CopyToAsync(discordInputStream, cancellationToken).ConfigureAwait(false);
+            }
+            if (seekCommand.TryPeek(out _))
+                continue;
+            break;
+        }
+    }
+
     async Task PlayerLogicAsync()
     {
         if (audioClient is null)
             return;
         using var discordInputStream = audioClient.CreatePCMStream(AudioApplication.Mixed);
+        var appDirectoryInfo = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+        var resourcesDirectoryInfo = new DirectoryInfo(Path.Combine(appDirectoryInfo.FullName, "Resources"));
+        if (resourcesDirectoryInfo.Exists)
+        {
+            var entranceSoundFileInfo = new FileInfo(Path.Combine(resourcesDirectoryInfo.FullName, "546638.mp3"));
+            if (entranceSoundFileInfo.Exists)
+                await PlayAudioAsync(discordInputStream, entranceSoundFileInfo, false).ConfigureAwait(false);
+        }
         try
         {
             while (true)
             {
                 seekCommand.Clear();
                 FileInfo? fileInfo = null;
+                var playedIndexesCount = 0;
                 using (await playerAccess.LockAsync().ConfigureAwait(false))
                 {
                     var playlistIndex = playedIndexes.LastOrDefault();
@@ -216,34 +222,26 @@ public class Audio :
                         if (playedIndexes.Count == 0 || playedIndexes.LastOrDefault() != playlistIndex)
                             playedIndexes.Add(playlistIndex);
                     }
+                    playedIndexesCount = playedIndexes.Count;
                 }
                 try
                 {
                     if (fileInfo is not null)
                     {
-                        var cancellationToken = playerCancellationTokenSource?.Token ?? throw new OperationCanceledException();
-                        var playTime = new Stopwatch();
-                        while (true)
+                        var getPSAFileInfoTask = Task.Run(() =>
                         {
-                            using var ffmpegInstance = seekCommand.TryDequeue(out var seekTo) ? CreateFfmpegInstance(fileInfo.FullName, isLoudnessNormalized, decibelAdjust, seekTo < TimeSpan.Zero ? playTime.Elapsed : seekTo) : CreateFfmpegInstance(fileInfo.FullName, isLoudnessNormalized, decibelAdjust);
-                            using var ffmpegOutputStream = ffmpegInstance.StandardOutput.BaseStream;
-                            if (!playTime.IsRunning)
-                                playTime.Start();
-                            var bytesRead = -1;
-                            while (bytesRead != 0 && ffmpegOutputStream.CanRead)
-                            {
-                                await streamingThrottle.WaitAsync().ConfigureAwait(false);
-                                if (seekCommand.TryPeek(out _) || skipCommand.TryPeek(out _))
-                                    break;
-                                var buffer = new byte[bufferSize];
-                                bytesRead = await ffmpegOutputStream.ReadAsync(buffer, 0, bufferSize).ConfigureAwait(false);
-                                using var bufferStream = new MemoryStream(buffer);
-                                await bufferStream.CopyToAsync(discordInputStream, cancellationToken).ConfigureAwait(false);
-                            }
-                            if (seekCommand.TryPeek(out var seekPosition))
-                                continue;
-                            break;
-                        }
+                            var settings = Settings.Instance;
+                            if (settings.AudioPSAs is { } psas &&
+                                psas.Length > 0 &&
+                                settings.AudioPSAFrequency is { } psaFrequency &&
+                                psaFrequency > 0 &&
+                                playedIndexesCount % psaFrequency == 0)
+                                return SynthesizeSpeech(psas[new Random().Next(0, psas.Length)]);
+                            return null;
+                        });
+                        await PlayAudioAsync(discordInputStream, fileInfo, true).ConfigureAwait(false);
+                        if (await getPSAFileInfoTask.ConfigureAwait(false) is { } psaFileInfo)
+                            await PlayAudioAsync(discordInputStream, psaFileInfo, false).ConfigureAwait(false);
                     }
                     else
                         break;
@@ -252,6 +250,12 @@ public class Audio :
                 {
                     return;
                 }
+            }
+            if (resourcesDirectoryInfo.Exists)
+            {
+                var exitSoundFile = new FileInfo(Path.Combine(resourcesDirectoryInfo.FullName, "546641.mp3"));
+                if (exitSoundFile.Exists)
+                    await PlayAudioAsync(discordInputStream, exitSoundFile, false).ConfigureAwait(false);
             }
         }
         finally
@@ -275,43 +279,60 @@ public class Audio :
             playedIndexes.Clear();
             shufflePlayedIndexes.Clear();
         }
+        streamingThrottle.Set();
     }
 
     public async Task<bool> ProcessRequestAsync(SocketMessage message, IReadOnlyList<string> commandArgs)
     {
-        IVoiceChannel getVoiceChannel() =>
-            ((IGuildUser)message.Author).VoiceChannel ?? throw new Exception("Command author is not in a voice channel on the server");
         if (commandArgs.Count >= 2 &&
             RequestIdentifiers.Contains(commandArgs[0], StringComparer.OrdinalIgnoreCase) &&
             commandArgs[1] is { } command &&
             !string.IsNullOrWhiteSpace(command))
         {
+            var voiceChannel = ((IGuildUser)message.Author).VoiceChannel;
+            void requireImInVoice()
+            {
+                if (connectedVoiceChannel is null)
+                    throw new Exception("I am not currently in a voice channel");
+            }
+            void requireImNotInVoiceOrInSameVoiceChannel()
+            {
+                if (connectedVoiceChannel is not null && (voiceChannel?.Id != connectedVoiceChannel.Id))
+                    throw new Exception("Command author is not in my voice channel");
+            }
+            void requireSameVoiceChannel()
+            {
+                if (voiceChannel?.Id != connectedVoiceChannel?.Id)
+                    throw new Exception("Command author is not in my voice channel");
+            }
+            void requireTheyreInVoice()
+            {
+                if (voiceChannel is null)
+                    throw new Exception("Command author is not in a voice channel");
+            }
             if (commandArgs.Count == 2)
             {
                 if (command.Equals("back", StringComparison.OrdinalIgnoreCase) || command.Equals("prev", StringComparison.OrdinalIgnoreCase) || command.Equals("previous", StringComparison.OrdinalIgnoreCase))
                 {
+                    requireImInVoice();
+                    requireSameVoiceChannel();
                     skipCommand.Enqueue(true);
                     await message.Channel.SendMessageAsync("Moving to previous track.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                     return true;
                 }
                 if (command.Equals("join", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (message.Author is IGuildUser guildUser)
-                    {
-                        if (audioClient is not null)
-                            await DisconnectAsync().ConfigureAwait(false);
-                        if (guildUser.VoiceChannel is { } voiceChannel)
-                        {
-                            await ConnectAsync(voiceChannel).ConfigureAwait(false);
-                            await message.Channel.SendMessageAsync("I have joined your channel.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                            return true;
-                        }
-                        else
-                            throw new Exception("Command author is not in a voice channel on the server");
-                    }
+                    requireTheyreInVoice();
+                    if (audioClient is not null)
+                        await DisconnectAsync().ConfigureAwait(false);
+                    await ConnectAsync(voiceChannel).ConfigureAwait(false);
+                    await message.Channel.SendMessageAsync("I have joined your channel.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                    return true;
                 }
                 if (command.Equals("leave", StringComparison.OrdinalIgnoreCase))
                 {
+                    requireImInVoice();
+                    requireSameVoiceChannel();
                     if (audioClient is not null)
                     {
                         await DisconnectAsync().ConfigureAwait(false);
@@ -330,6 +351,8 @@ public class Audio :
                 }
                 if (command.Equals("pause", StringComparison.OrdinalIgnoreCase))
                 {
+                    requireImInVoice();
+                    requireSameVoiceChannel();
                     if (streamingThrottle.IsSet)
                     {
                         streamingThrottle.Reset();
@@ -361,6 +384,8 @@ public class Audio :
                 }
                 if (command.Equals("resume", StringComparison.OrdinalIgnoreCase))
                 {
+                    requireImInVoice();
+                    requireSameVoiceChannel();
                     streamingThrottle.Set();
                     await message.Channel.SendMessageAsync("Playback resumed.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                     return true;
@@ -373,12 +398,16 @@ public class Audio :
                 }
                 if (command.Equals("skip", StringComparison.OrdinalIgnoreCase) || command.Equals("next", StringComparison.OrdinalIgnoreCase))
                 {
+                    requireImInVoice();
+                    requireSameVoiceChannel();
                     skipCommand.Enqueue(true);
                     await message.Channel.SendMessageAsync("Moving to next track.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                     return true;
                 }
                 if (command.Equals("stop", StringComparison.OrdinalIgnoreCase))
                 {
+                    requireImInVoice();
+                    requireSameVoiceChannel();
                     await StopAsync().ConfigureAwait(false);
                     await message.Channel.SendMessageAsync("Playback stopped.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                     return true;
@@ -399,6 +428,8 @@ public class Audio :
             }
             if (commandArgs.Count == 3 && command.Equals("seek", StringComparison.OrdinalIgnoreCase))
             {
+                requireImInVoice();
+                requireSameVoiceChannel();
                 var isPlaying = false;
                 using (await playerAccess.LockAsync().ConfigureAwait(false))
                     isPlaying = playerCancellationTokenSource is not null;
@@ -431,6 +462,8 @@ public class Audio :
             {
                 if (command.Equals("play", StringComparison.OrdinalIgnoreCase))
                 {
+                    requireTheyreInVoice();
+                    requireImNotInVoiceOrInSameVoiceChannel();
                     if (commandArgs.Count >= 4)
                     {
                         var service = commandArgs[2];
@@ -442,7 +475,7 @@ public class Audio :
                             {
                                 if (fileInfo.Exists)
                                 {
-                                    await AddPlaylistItemAsync(fileInfo, getVoiceChannel).ConfigureAwait(false);
+                                    await AddPlaylistItemAsync(fileInfo, voiceChannel).ConfigureAwait(false);
                                     await message.Channel.SendMessageAsync("The local file was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                                     return true;
                                 }
@@ -454,22 +487,25 @@ public class Audio :
                                 var playlistIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(3)), @"[0-9a-zA-Z_]{34}");
                                 if (playlistIdMatch.Success)
                                 {
-                                    await AddYouTubePlaylistPlaylistItemsAsync(playlistIdMatch.Value, getVoiceChannel).ConfigureAwait(false);
-                                    await message.Channel.SendMessageAsync("The videos in the YouTube playlist were added to my playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                    var pleaseWaitMessage = await message.Channel.SendMessageAsync("Please wait as your YouTube playlist is downloaded...", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                    await AddYouTubePlaylistPlaylistItemsAsync(playlistIdMatch.Value, voiceChannel).ConfigureAwait(false);
+                                    await pleaseWaitMessage.ModifyAsync(msg => msg.Content = "The videos in the YouTube playlist were added to my playlist.").ConfigureAwait(false);
                                     return true;
                                 }
                                 var videoIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(3)), @"[0-9a-zA-Z_]{11}");
                                 if (videoIdMatch.Success)
                                 {
-                                    await AddYouTubeVideoPlaylistItemAsync(videoIdMatch.Value, getVoiceChannel).ConfigureAwait(false);
-                                    await message.Channel.SendMessageAsync("The YouTube video was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                    var pleaseWaitMessage = await message.Channel.SendMessageAsync("Please wait as your YouTube video is downloaded...", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                    await AddYouTubeVideoPlaylistItemAsync(videoIdMatch.Value, voiceChannel).ConfigureAwait(false);
+                                    await pleaseWaitMessage.ModifyAsync(msg => msg.Content = "The YouTube video was added to the playlist.").ConfigureAwait(false);
                                     return true;
                                 }
                                 await foreach (var result in new YoutubeClient().Search.GetResultsAsync(string.Join(" ", commandArgs.Skip(3))))
                                     if (result is VideoSearchResult video)
                                     {
-                                        await AddYouTubeVideoPlaylistItemAsync(video.Id.Value, getVoiceChannel).ConfigureAwait(false);
-                                        await message.Channel.SendMessageAsync($"This YouTube video was added to the playlist: https://youtu.be/{video.Id.Value}", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                        var pleaseWaitMessage = await message.Channel.SendMessageAsync($"Please wait as this YouTube video is downloaded: https://youtu.be/{video.Id.Value}", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                                        await AddYouTubeVideoPlaylistItemAsync(video.Id.Value, voiceChannel).ConfigureAwait(false);
+                                        await pleaseWaitMessage.ModifyAsync(msg => msg.Content = $"This YouTube video was added to the playlist: https://youtu.be/{video.Id.Value}").ConfigureAwait(false);
                                         return true;
                                     }
                                 throw new Exception("YouTube media not found");
@@ -477,18 +513,20 @@ public class Audio :
                         }
                     }
                     {
-                        var playlistIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(2)), @"[0-9a-zA-Z_]{34}");
-                        if (playlistIdMatch.Success)
+                        var youTubePlaylistId = Regex.Match(string.Join(" ", commandArgs.Skip(2)), @"[0-9a-zA-Z_]{34}");
+                        if (youTubePlaylistId.Success)
                         {
-                            await AddYouTubePlaylistPlaylistItemsAsync(playlistIdMatch.Value, getVoiceChannel).ConfigureAwait(false);
-                            await message.Channel.SendMessageAsync("The videos in the YouTube playlist were added to my playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                            var pleaseWaitMessage = await message.Channel.SendMessageAsync("Please wait as your YouTube playlist is downloaded...", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                            await AddYouTubePlaylistPlaylistItemsAsync(youTubePlaylistId.Value, voiceChannel).ConfigureAwait(false);
+                            await pleaseWaitMessage.ModifyAsync(msg => msg.Content = "The videos in the YouTube playlist were added to my playlist.").ConfigureAwait(false);
                             return true;
                         }
                         var youtubeVideoIdMatch = Regex.Match(string.Join(" ", commandArgs.Skip(2)), @"[0-9a-zA-Z_]{11}");
                         if (youtubeVideoIdMatch.Success)
                         {
-                            await AddYouTubeVideoPlaylistItemAsync(youtubeVideoIdMatch.Value, getVoiceChannel).ConfigureAwait(false);
-                            await message.Channel.SendMessageAsync("The YouTube video was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                            var pleaseWaitMessage = await message.Channel.SendMessageAsync("Please wait as your YouTube video is downloaded...", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                            await AddYouTubeVideoPlaylistItemAsync(youtubeVideoIdMatch.Value, voiceChannel).ConfigureAwait(false);
+                            await pleaseWaitMessage.ModifyAsync(msg => msg.Content = "The YouTube video was added to the playlist.").ConfigureAwait(false);
                             return true;
                         }
                         if (commandArgs[2] is { } path &&
@@ -496,14 +534,14 @@ public class Audio :
                             new FileInfo(path) is { } fileInfo &&
                             fileInfo.Exists)
                         {
-                            await AddPlaylistItemAsync(fileInfo, getVoiceChannel).ConfigureAwait(false);
+                            await AddPlaylistItemAsync(fileInfo, voiceChannel).ConfigureAwait(false);
                             await message.Channel.SendMessageAsync("The local file was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                             return true;
                         }
                         await foreach (var result in new YoutubeClient().Search.GetResultsAsync(string.Join(" ", commandArgs.Skip(2))))
                             if (result is VideoSearchResult video)
                             {
-                                await AddYouTubeVideoPlaylistItemAsync(video.Id.Value, getVoiceChannel).ConfigureAwait(false);
+                                await AddYouTubeVideoPlaylistItemAsync(video.Id.Value, voiceChannel).ConfigureAwait(false);
                                 await message.Channel.SendMessageAsync($"This YouTube video was added to the playlist: https://youtu.be/{video.Id.Value}", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
                                 return true;
                             }
@@ -512,8 +550,11 @@ public class Audio :
                 }
                 if (command.Equals("say", StringComparison.OrdinalIgnoreCase))
                 {
-                    await AddPlaylistItemAsync(SynthesizeSpeech(string.Join(" ", commandArgs.Skip(2))), getVoiceChannel).ConfigureAwait(false);
-                    await message.Channel.SendMessageAsync("Your statement was added to the playlist.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                    requireTheyreInVoice();
+                    requireImNotInVoiceOrInSameVoiceChannel();
+                    var pleaseWaitMessage = await message.Channel.SendMessageAsync("Please wait as your speech is synthesized...", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                    await AddPlaylistItemAsync(SynthesizeSpeech(string.Join(" ", commandArgs.Skip(2))), voiceChannel).ConfigureAwait(false);
+                    await pleaseWaitMessage.ModifyAsync(msg => msg.Content = "Your statement was added to the playlist.").ConfigureAwait(false);
                     return true;
                 }
             }
