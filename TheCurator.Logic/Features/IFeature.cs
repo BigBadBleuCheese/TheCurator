@@ -3,13 +3,11 @@ namespace TheCurator.Logic.Features;
 public interface IFeature :
     IDisposable
 {
-    string Description { get; }
+    Task CreateGlobalApplicationCommandsAsync();
 
-    IReadOnlyList<(string command, string description)> Examples { get; }
+    string Description { get; }
 
     string Name { get; }
 
-    IReadOnlyList<string> RequestIdentifiers { get; }
-
-    Task<bool> ProcessRequestAsync(SocketMessage message, IReadOnlyList<string> commandArgs);
+    Task ProcessCommandAsync(SocketSlashCommand command);
 }

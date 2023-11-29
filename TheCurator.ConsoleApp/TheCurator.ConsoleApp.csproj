@@ -4,11 +4,16 @@
         <DefineConstants Condition="'$(InstructionSet)' == 'x86'">$(DefineConstants);IS_X86</DefineConstants>
         <DefineConstants Condition="'$(InstructionSet)' == 'arm64'">$(DefineConstants);IS_ARM64</DefineConstants>
         <OutputType>Exe</OutputType>
-        <TargetFramework>net6.0</TargetFramework>
+        <TargetFramework>net8.0</TargetFramework>
+        <Platforms>AnyCPU;x64</Platforms>
     </PropertyGroup>
 
     <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
         <DefineConstants>DEBUG;TRACE</DefineConstants>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      <DefineConstants>DEBUG;TRACE</DefineConstants>
     </PropertyGroup>
 
     <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
@@ -18,12 +23,19 @@
         <SelfContained>true</SelfContained>
     </PropertyGroup>
 
+    <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+      <DebugSymbols>true</DebugSymbols>
+      <DebugType>embedded</DebugType>
+      <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+      <SelfContained>true</SelfContained>
+    </PropertyGroup>
+
     <ItemGroup>
-        <PackageReference Include="Autofac" Version="6.3.0" />
+        <PackageReference Include="Autofac" Version="7.1.0" />
         <PackageReference Include="Ben.Demystifier" Version="0.4.1" />
-        <PackageReference Include="Cogs.Exceptions" Version="1.0.5" />
+        <PackageReference Include="Cogs.Exceptions" Version="1.0.7" />
         <PackageReference Include="sqlite-net-pcl" Version="1.8.116" />
-        <PackageReference Include="System.ServiceProcess.ServiceController" Version="6.0.0" />
+        <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
     </ItemGroup>
 
     <ItemGroup>

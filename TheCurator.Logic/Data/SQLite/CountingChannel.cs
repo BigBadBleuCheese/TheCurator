@@ -7,8 +7,8 @@ namespace TheCurator.Logic.Data.SQLite
         [PrimaryKey]
         public long ChannelId { get; set; }
 
-        public int Count { get; set; }
+        public int? Count { get; set; }
 
-        public long LastAuthorId { get; set; }
+        public long? LastAuthorId { get; set; }
     }
 }

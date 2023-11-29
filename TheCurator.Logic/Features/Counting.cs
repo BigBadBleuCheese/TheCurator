@@ -6,7 +6,6 @@ public class Counting :
 {
     public Counting(IDataStore dataStore, IBot bot)
     {
-        RequestIdentifiers = new string[] { "counting" };
         this.dataStore = dataStore;
         this.bot = bot;
         this.bot.Client.MessageReceived += ClientMessageReceived;
@@ -14,21 +13,13 @@ public class Counting :
 
     readonly IBot bot;
     readonly IDataStore dataStore;
+    IApplicationCommand? toggle;
 
     public string Description =>
         "Manages a counting game in a channel";
 
-    public IReadOnlyList<(string command, string description)> Examples =>
-        new (string command, string description)[]
-        {
-            ("enable", "Enables the counting game in the current channel"),
-            ("disable", "Disables the counting game in the current channel"),
-        };
-
     public string Name =>
         "Counting";
-
-    public IReadOnlyList<string> RequestIdentifiers { get; }
 
     async Task ClientMessageReceived(SocketMessage message)
     {
@@ -37,7 +28,7 @@ public class Counting :
             double.TryParse(message.Content, out var number) &&
             number == Math.Truncate(number))
         {
-            var (nullableCurrentCount, nullableLastAuthorId) = await dataStore.GetCountingChannelCountAsync(message.Channel.Id).ConfigureAwait(false);
+            var (nullableCurrentCount, nullableLastAuthorId) = await dataStore.GetCountingChannelCountAsync(message.Channel.Id);
             if (nullableCurrentCount is { } currentCount && nullableLastAuthorId is { } lastAuthorId)
             {
                 var intNumber = (int)number;
@@ -55,6 +46,15 @@ public class Counting :
         }
     }
 
+    public async Task CreateGlobalApplicationCommandsAsync()
+    {
+        toggle = await bot.Client.CreateGlobalApplicationCommandAsync(new SlashCommandBuilder()
+            .WithName("counting")
+            .WithDescription("Manages the counting game in this channel")
+            .AddOption("enabled", ApplicationCommandOptionType.Boolean, "Whether the counting game is enabled in this channel", true)
+            .Build());
+    }
+
     protected override bool Dispose(bool disposing)
     {
         if (disposing)
@@ -62,34 +62,31 @@ public class Counting :
         return true;
     }
 
-    public async Task<bool> ProcessRequestAsync(SocketMessage message, IReadOnlyList<string> commandArgs)
+    public async Task ProcessCommandAsync(SocketSlashCommand command)
     {
-        if (bot.IsAdministrativeUser(message.Author) && commandArgs.Count == 2 && RequestIdentifiers.Contains(commandArgs[0], StringComparer.OrdinalIgnoreCase))
+        if (await command.RequireAdministrativeUserAsync(bot) && command.Data.Options.First().Value is bool enable)
         {
-            var secondArgument = commandArgs[1].ToUpperInvariant();
-            if (secondArgument == "ENABLE")
+            await command.DeferAsync();
+            if (enable)
             {
-                if ((await dataStore.GetCountingChannelCountAsync(message.Channel.Id).ConfigureAwait(false)).count is null)
+                if ((await dataStore.GetCountingChannelCountAsync(command.Channel.Id)).count is null)
                 {
-                    await dataStore.SetCountingChannelCountAsync(message.Channel.Id, 0, 0).ConfigureAwait(false);
-                    await message.Channel.SendMessageAsync("This channel is equipped for counting.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                    await dataStore.SetCountingChannelCountAsync(command.Channel.Id, 0, 0);
+                    await command.FollowupAsync("This channel is equipped for counting.", ephemeral: true);
                 }
                 else
-                    await message.Channel.SendMessageAsync("Your request cannot be processed. This channel is already equipped for counting.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                return true;
+                    await command.FollowupAsync("Your request cannot be processed. This channel is already equipped for counting.", ephemeral: true);
             }
-            else if (secondArgument == "DISABLE")
+            else
             {
-                if ((await dataStore.GetCountingChannelCountAsync(message.Channel.Id).ConfigureAwait(false)).count is not null)
+                if ((await dataStore.GetCountingChannelCountAsync(command.Channel.Id)).count is not null)
                 {
-                    await dataStore.SetCountingChannelCountAsync(message.Channel.Id, null, null).ConfigureAwait(false);
-                    await message.Channel.SendMessageAsync("Counting in this channel is no longer operational.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
+                    await dataStore.SetCountingChannelCountAsync(command.Channel.Id, null, null);
+                    await command.FollowupAsync("Counting in this channel is no longer operational.", ephemeral: true);
                 }
                 else
-                    await message.Channel.SendMessageAsync("Your request cannot be processed. Counting in this channel is not operational.", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                return true;
+                    await command.FollowupAsync("Your request cannot be processed. Counting in this channel is not operational.", ephemeral: true);
             }
         }
-        return false;
     }
 }

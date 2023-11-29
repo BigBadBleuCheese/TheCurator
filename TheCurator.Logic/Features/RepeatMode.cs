@@ -1,9 +1,9 @@
 namespace TheCurator.Logic.Features;
 
 enum RepeatMode :
-    int
+    long
 {
-    None,
+    None = 0,
     Playlist,
     Single
 }

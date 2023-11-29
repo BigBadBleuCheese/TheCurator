@@ -14,7 +14,10 @@ public class Bot :
             foreach (var type in featureCatalog.Services)
                 builder.RegisterType(type);
         });
-        Client = new DiscordSocketClient();
+        Client = new DiscordSocketClient(new DiscordSocketConfig
+        {
+            GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.MessageContent
+        });
         features = featureCatalog.Services.Select(type => this.lifetimeScope.Resolve(type)).OfType<IFeature>().ToImmutableArray();
     }
 
@@ -34,7 +37,8 @@ public class Bot :
                 feature.Dispose();
             Client.Connected -= ConnectedAsync;
             Client.Disconnected -= DisconnectedAsync;
-            Client.MessageReceived -= MessageReceivedAsync;
+            Client.Ready -= ReadyAsync;
+            Client.SlashCommandExecuted -= SlashCommandExecutedAsync;
             Client.Dispose();
             lifetimeScope.Dispose();
         }
@@ -49,7 +53,8 @@ public class Bot :
                 throw new InvalidOperationException();
             Client.Connected += ConnectedAsync;
             Client.Disconnected += DisconnectedAsync;
-            Client.MessageReceived += MessageReceivedAsync;
+            Client.Ready += ReadyAsync;
+            Client.SlashCommandExecuted += SlashCommandExecutedAsync;
             await Client.LoginAsync(TokenType.Bot, token).ConfigureAwait(false);
             await Client.StartAsync().ConfigureAwait(false);
             isInitialized = true;
@@ -62,81 +67,27 @@ public class Bot :
     async Task DisconnectedAsync(Exception ex) =>
         await dataStore.DisconnectAsync();
 
+    async Task GuildAvailableAsync(SocketGuild arg)
+    {
+        foreach (var feature in features)
+            await feature.CreateGlobalApplicationCommandsAsync().ConfigureAwait(false);
+    }
+
     public bool IsAdministrativeUser(IUser user) =>
         user is IGuildUser guildUser && guildUser.Guild.OwnerId == user.Id;
 
-    Task MessageReceivedAsync(SocketMessage message)
+    async Task ReadyAsync()
     {
-        Task.Run(async () =>
+        foreach (var feature in features)
+            await feature.CreateGlobalApplicationCommandsAsync().ConfigureAwait(false);
+    }
+
+    Task SlashCommandExecutedAsync(SocketSlashCommand command)
+    {
+        _ = Task.Run(async () =>
         {
-            if (message.Author.Id != Client.CurrentUser.Id && message.Channel is IGuildChannel guildChannel)
-            {
-                var currentGuildUser = await guildChannel.Guild.GetCurrentUserAsync();
-                if (currentGuildUser is SocketGuildUser currentSocketGuildUser && new string[] { $"{currentGuildUser.Id}", $"!{currentGuildUser.Id}" }.Concat(currentSocketGuildUser.Roles.Select(r => $"{r.Id}")).Concat(currentSocketGuildUser.Roles.Select(r => $"&{r.Id}")).Select(id => $"<@{id}>").FirstOrDefault(ap => message.Content.StartsWith(ap)) is { } atPrefix)
-                {
-                    var requestArgs = GetRequestArguments(message.Content[atPrefix.Length..]).ToImmutableArray();
-                    var requestProcessed = false;
-                    try
-                    {
-                        foreach (var feature in features)
-                        {
-                            if (await feature.ProcessRequestAsync(message, requestArgs))
-                            {
-                                requestProcessed = true;
-                                break;
-                            }
-                        }
-                        if (!requestProcessed)
-                        {
-                            if (requestArgs.Length >= 1 && requestArgs[0].Equals("help", StringComparison.OrdinalIgnoreCase))
-                            {
-                                if (requestArgs.Length == 1)
-                                {
-                                    await message.Channel.SendMessageAsync(embed: new EmbedBuilder
-                                    {
-                                        Author = GetEmbedAuthorBuilder(),
-                                        Title = $"Features",
-                                        Fields = features.OrderBy(feature => feature.Name).Select(feature => new EmbedFieldBuilder
-                                        {
-                                            Name = feature.Name,
-                                            Value = $"{feature.Description}\nIdentifiers: {string.Join(", ", feature.RequestIdentifiers.Select(i => $"`{i}`"))}\nFor example requests: {string.Join(" -OR- ", feature.RequestIdentifiers.Select(i => $"`help {i}`"))}",
-                                            IsInline = false
-                                        }).ToList()
-                                    }.Build(), messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                                }
-                                else if (requestArgs.Length == 2)
-                                {
-                                    var secondArg = requestArgs[1];
-                                    if (features.FirstOrDefault(f => f.RequestIdentifiers.Contains(secondArg, StringComparer.OrdinalIgnoreCase)) is { } feature)
-                                    {
-                                        await message.Channel.SendMessageAsync(embed: new EmbedBuilder
-                                        {
-                                            Author = GetEmbedAuthorBuilder(),
-                                            Title = $"{feature.Name} requests",
-                                            Fields = feature.Examples.Select(example => new EmbedFieldBuilder
-                                            {
-                                                Name = example.command,
-                                                Value = example.description,
-                                                IsInline = false
-                                            }).ToList()
-                                        }.Build(), messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                                    }
-                                    else
-                                        await message.Channel.SendMessageAsync($"Your request cannot be processed. No such feature `{secondArg}`.", messageReference: new MessageReference(message.Id));
-                                }
-                                else
-                                    await message.Channel.SendMessageAsync("Your request cannot be processed.", messageReference: new MessageReference(message.Id));
-                            }
-                            else
-                                await message.Channel.SendMessageAsync("Your request cannot be processed.", messageReference: new MessageReference(message.Id));
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        await message.Channel.SendMessageAsync($"Your request cannot be processed.\r\n```\r\n{ex.GetFullDetails()}\r\n```", messageReference: new MessageReference(message.Id)).ConfigureAwait(false);
-                    }
-                }
-            }
+            foreach (var feature in features)
+                await feature.ProcessCommandAsync(command);
         });
         return Task.CompletedTask;
     }

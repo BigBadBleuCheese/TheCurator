@@ -1,17 +1,10 @@
-using Cogs.Disposal;
 using SQLite;
-using System;
-using System.Collections.Generic;
-using System.Collections.Immutable;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace TheCurator.Logic.Data.SQLite
 {
     public class DataStore : AsyncDisposable, IDataStore
     {
-        public DataStore() => connection = new SQLiteAsyncConnection(Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetEntryAssembly().Location), "data.sqlite"));
+        public DataStore() => connection = new SQLiteAsyncConnection(Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetEntryAssembly()!.Location)!, "data.sqlite"));
 
         readonly SQLiteAsyncConnection connection;
 
@@ -52,7 +45,7 @@ namespace TheCurator.Logic.Data.SQLite
                         (
                             "update CountingChannel set ChannelId = ?, LastAuthorId = ? where ChannelId = ?",
                             await getSnowflakeAsync(countingChannel.ChannelId).ConfigureAwait(false),
-                            await getSnowflakeAsync(countingChannel.LastAuthorId).ConfigureAwait(false),
+                            await getSnowflakeAsync(countingChannel.LastAuthorId!.Value).ConfigureAwait(false),
                             countingChannel.ChannelId
                         ).ConfigureAwait(false);
                 }
@@ -125,18 +118,17 @@ namespace TheCurator.Logic.Data.SQLite
         {
             var id = channelId.ToSigned();
             var countingChannel = await connection.Table<CountingChannel>().FirstOrDefaultAsync(cc => cc.ChannelId == id).ConfigureAwait(false);
-            return countingChannel is null ? (null, null) : (countingChannel.Count, countingChannel.LastAuthorId.ToUnsigned());
+            return countingChannel is null ? (null, null) : (countingChannel.Count, countingChannel.LastAuthorId?.ToUnsigned());
         }
 
         public async Task SetCountingChannelCountAsync(ulong channelId, int? count, ulong? lastAuthorId)
         {
-            if (count is { } nonNullCount && lastAuthorId is { } nonNullLastAuthorId)
-                await connection.InsertOrReplaceAsync(new CountingChannel
-                {
-                    ChannelId = channelId.ToSigned(),
-                    Count = nonNullCount,
-                    LastAuthorId = nonNullLastAuthorId.ToSigned(),
-                }).ConfigureAwait(false);
+            await connection.InsertOrReplaceAsync(new CountingChannel
+            {
+                ChannelId = channelId.ToSigned(),
+                Count = count,
+                LastAuthorId = lastAuthorId?.ToSigned(),
+            }).ConfigureAwait(false);
         }
 
         #endregion Counting
