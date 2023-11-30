@@ -515,15 +515,17 @@ public partial class Audio :
                                 var playlistIdMatch = GetYouTubePlaylistIdPattern().Match(content);
                                 if (playlistIdMatch.Success)
                                 {
-                                    AddYouTubePlaylistPlaylistItems(playlistIdMatch.Groups["playlistId"].Value, voiceChannel, slashCommand: command);
-                                    await command.FollowupAsync("The videos in the YouTube playlist were added to my playlist.");
+                                    var playlistId = playlistIdMatch.Groups["playlistId"].Value;
+                                    AddYouTubePlaylistPlaylistItems(playlistId, voiceChannel, slashCommand: command);
+                                    await command.FollowupAsync($"The videos in this YouTube playlist were added to my playlist: https://www.youtube.com/playlist?list={playlistId}");
                                     return;
                                 }
                                 var videoIdMatch = GetYouTubeVideoIdPattern().Match(content);
                                 if (videoIdMatch.Success)
                                 {
-                                    await AddYouTubeVideoPlaylistItemAsync(videoIdMatch.Value, voiceChannel);
-                                    await command.FollowupAsync("The YouTube video was added to the playlist.");
+                                    var videoId = videoIdMatch.Value;
+                                    await AddYouTubeVideoPlaylistItemAsync(videoId, voiceChannel);
+                                    await command.FollowupAsync($"This YouTube video was added to the playlist: https://youtu.be/{videoId}");
                                     return;
                                 }
                                 await foreach (var result in new YoutubeClient().Search.GetResultsAsync(content))
@@ -540,15 +542,17 @@ public partial class Audio :
                             var youTubePlaylistId = GetYouTubePlaylistIdPattern().Match(content);
                             if (youTubePlaylistId.Success)
                             {
-                                AddYouTubePlaylistPlaylistItems(youTubePlaylistId.Groups["playlistId"].Value, voiceChannel, slashCommand: command);
-                                await command.FollowupAsync("The videos in the YouTube playlist were added to my playlist.");
+                                var playlistId = youTubePlaylistId.Groups["playlistId"].Value;
+                                AddYouTubePlaylistPlaylistItems(playlistId, voiceChannel, slashCommand: command);
+                                await command.FollowupAsync($"The videos in this YouTube playlist were added to my playlist: https://www.youtube.com/playlist?list={playlistId}");
                                 return;
                             }
                             var youtubeVideoIdMatch = GetYouTubeVideoIdPattern().Match(content);
                             if (youtubeVideoIdMatch.Success)
                             {
-                                await AddYouTubeVideoPlaylistItemAsync(youtubeVideoIdMatch.Value, voiceChannel);
-                                await command.FollowupAsync("The YouTube video was added to the playlist.");
+                                var videoId = youtubeVideoIdMatch.Value;
+                                await AddYouTubeVideoPlaylistItemAsync(videoId, voiceChannel);
+                                await command.FollowupAsync($"This YouTube video was added to the playlist: https://youtu.be/{videoId}");
                                 return;
                             }
                             if (!string.IsNullOrWhiteSpace(content) &&
@@ -556,7 +560,7 @@ public partial class Audio :
                                 fileInfo.Exists)
                             {
                                 await AddPlaylistItemAsync(fileInfo, voiceChannel);
-                                await command.FollowupAsync("The local file was added to the playlist.");
+                                await command.FollowupAsync($"Added {fileInfo.Name} to the playlist.");
                                 return;
                             }
                             await foreach (var result in new YoutubeClient().Search.GetResultsAsync(content))

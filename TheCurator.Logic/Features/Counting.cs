@@ -40,7 +40,12 @@ public class Counting :
                 else
                 {
                     await dataStore.SetCountingChannelCountAsync(message.Channel.Id, 0, 0);
-                    await message.Channel.SendMessageAsync($"The counting rules will be strictly enforced. The count was ruined at **{currentCount}**. The next number is **1**.", messageReference: new MessageReference(message.Id));
+                    await message.Channel.SendMessageAsync(embed: new EmbedBuilder()
+                        .WithAuthor(bot.Client.CurrentUser)
+                        .WithColor(Color.Red)
+                        .WithTitle("Counting Game Ruined")
+                        .WithDescription($"The counting rules will be strictly enforced. The count was ruined at **{currentCount}**. The next number is **1**.").Build(),
+                        messageReference: new MessageReference(message.Id));
                 }
             }
         }
@@ -72,20 +77,34 @@ public class Counting :
                 if ((await dataStore.GetCountingChannelCountAsync(command.Channel.Id)).count is null)
                 {
                     await dataStore.SetCountingChannelCountAsync(command.Channel.Id, 0, 0);
-                    await command.FollowupAsync("This channel is equipped for counting.", ephemeral: true);
+                    await command.FollowupAsync(embed: new EmbedBuilder()
+                        .WithColor(Color.Green)
+                        .WithTitle("Counting Game Enabled")
+                        .WithDescription("The counting game is now operational in this channel. The next number is **1**.").Build());
                 }
                 else
-                    await command.FollowupAsync("Your request cannot be processed. This channel is already equipped for counting.", ephemeral: true);
+                    await command.FollowupAsync(embed: new EmbedBuilder()
+                        .WithColor(Color.Orange)
+                        .WithTitle("Counting Game Already Enabled")
+                        .WithDescription("Your request cannot be processed. This channel is already equipped for counting.").Build(),
+                        ephemeral: true);
             }
             else
             {
                 if ((await dataStore.GetCountingChannelCountAsync(command.Channel.Id)).count is not null)
                 {
                     await dataStore.SetCountingChannelCountAsync(command.Channel.Id, null, null);
-                    await command.FollowupAsync("Counting in this channel is no longer operational.", ephemeral: true);
+                    await command.FollowupAsync(embed: new EmbedBuilder()
+                        .WithColor(Color.Green)
+                        .WithTitle("Counting Game Disabled")
+                        .WithDescription("The counting game is no longer operational in this channel.").Build());
                 }
                 else
-                    await command.FollowupAsync("Your request cannot be processed. Counting in this channel is not operational.", ephemeral: true);
+                    await command.FollowupAsync(embed: new EmbedBuilder()
+                        .WithColor(Color.Orange)
+                        .WithTitle("Counting Game Already Disabled")
+                        .WithDescription("Your request cannot be processed. This channel is already not equipped for counting.").Build(),
+                        ephemeral: true);
             }
         }
     }

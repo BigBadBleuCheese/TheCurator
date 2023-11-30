@@ -31,6 +31,18 @@ public class Choose :
     public async Task ProcessCommandAsync(SocketSlashCommand command)
     {
         if (command.CommandId == choose?.Id)
-            await command.RespondAsync(Random.Shared.GetItems(Bot.GetRequestArguments(command.Data.Options.First().Value.ToString()!).ToArray(), 1)[0]);
+        {
+            var choices = Bot.GetRequestArguments(command.Data.Options.First().Value.ToString()!).ToArray();
+            await command.RespondAsync(embed: new EmbedBuilder()
+                .WithColor(Color.Blue)
+                .WithFields(choices.Select((choice, index) => new EmbedFieldBuilder()
+                    .WithName($"Choice {index + 1}")
+                    .WithValue(choice)
+                ).Concat(new EmbedFieldBuilder[] { new EmbedFieldBuilder()
+                    .WithName("Selected Choice")
+                    .WithValue(Random.Shared.GetItems(choices, 1)[0])
+                }).ToArray())
+                .Build());
+        }
     }
 }
